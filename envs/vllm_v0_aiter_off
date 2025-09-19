@@ -26,7 +26,7 @@ TENSOR_PARALLEL_SIZE=1
 PIPELINE_PARALLEL_SIZE=1
 
 # Server Arguments
-
+GPU_MEMORY_UTILIZATION=0.9
 
 # Model Stored Path
 HF_HOME=${HOME}/models
