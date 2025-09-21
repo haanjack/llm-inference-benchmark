@@ -1,7 +1,5 @@
 #!/bin/bash
 
-mkdir -p slogs
-
 # Load environment variables from the .env file
 ENV_FILE=${1:-"baseline"}
 ENV_FILE_PATH=$(pwd)/"envs"/${ENV_FILE} 
@@ -22,7 +20,7 @@ fi
 
 # Define benchmark scape
 BENCH_SCAPE_OPT=${4:-"test"}
-if [[ ${BENCH_SCAPE_OPT} == "test" ]]; then
+if [[ ${BENCH_SCAPE_OPT} == "test" || ${BENCH_SCAPE_OPT} == "sweep" ]]; then
     CLIENT_COUNTS=(4)
     INPUT_LENGTHS=(2048)
     OUTPUT_LENGTH=(2048)
@@ -43,19 +41,39 @@ fi
 # GPU index
 CUSTOM_VISIBLE_DEVICES_OPT=${5:-"${SLURM_JOB_GPUS}"}
 
-VLLM_ROCM_USE_AITER_RMSNORM=1
+VLLM_ARGS="
+--quantization=${QUANTIZATION}
+--kv-cache-dtype=${KV_CACHE_DTYPE} 
+--gpu_memory_utilization=${GPU_MEMORY_UTILIZATION:-"0.9"} 
+--max-seq-len-to-capture ${MAX_SEQ_LEN_TO_CAPTURE:-"8192"} 
+--max-num-batched-token ${MAX_NUM_BATEHD_TOKENS:-"8192"} 
+--swap-space 64
+--no-enable-prefix-caching 
+--async-scheduling "
 if [[ "$VLLM_USE_V1" == "0" ]]; then
     # Use CK Flash Attention
     VLLM_USE_TRITON_FLASH_ATTN=0
-    VLLM_ARGS="" #"--num-scheduler-steps 10"
 else
     if [[ $VLLM_ROCM_USE_AITER == 1 ]]; then
-        # AITER RMS norm does not work with inductor compile
-        VLLM_ROCM_USE_AITER_RMSNORM=0
         # AITER MHA is on by default but does not support full graph capture yet
         if [[ $VLLM_ROCM_USE_AITER_MHA != 0 ]]; then
-            VLLM_ARGS='--compilation-config {"full_cuda_graph":false}'
+            VLLM_ARGS=$VLLM_ARGS # '--compilation-config {"full_cuda_graph":false}'
         fi
+
+        if [[ ${VLLM_CUDAGRAPH_MODE} != "" ]]; then
+            if [[ ${VLLM_CUDAGRAPH_MODE} == "NONE" ]]; then
+                VLLM_ARGS="${VLLM_ARGS} --compilation-config {\"cudagraph_mode\": \"null\"} "
+            elif [[ ${VLLM_CUDAGRAPH_MODE} == "PIECEWISE" ]]; then #default
+                VLLM_ARGS="${VLLM_ARGS} --compilation-config {\"cudagraph_mode\": \"PIECEWISE\"} "
+            elif [[ ${VLLM_CUDAGRAPH_MODE} == "FULL" ]]; then
+ 		VLLM_ARGS+=(--compilation-config='{"cudagraph_mode": "FULL"}')
+#		VLLM_ARGS+=" --compilation-config='{\"cudagraph_mode\": \"FULL\"}'"
+            elif [[ ${VLLM_CUDAGRAPH_MODE} == "FULL_DECODE_ONLY" ]]; then
+                VLLM_ARGS="${VLLM_ARGS} --compilation-config {\"cudagraph_mode\": \"FULL_DECODE_ONLY\"} "
+            elif [[ ${VLLM_CUDAGRAPH_MODE} == "FULL_AND_PIECEWISE" ]]; then
+                VLLM_ARGS="${VLLM_ARGS} --compilation-config {\"cudagraph_mode\": \"FULL_AND_PIECEWISE\"} "
+            fi
+	fi
     fi
 fi
 
@@ -67,8 +85,11 @@ echo "> $NUM_GPUS GPU(s) is/are allocated"
 
 # Define the container name
 PROCESS_NAME="${ENV_FILE}"
-SLURM_JOB_ID=${SLURM_JOB_ID:-"$(date +%s)"}
+SLURM_JOB_ID=${SLURM_JOB_ID:-""}
 CONTAINER_NAME="${PROCESS_NAME}_${SLURM_JOB_ID}_${FIRST_GPU_ID}" # Unique name to avoid conflicts
+if [[ ${SLURM_JOB_ID} == "" ]]; then
+    CONTAINER_NAME="${PROCESS_NAME}_${FIRST_GPU_ID}" # Unique name to avoid conflicts
+fi
 
 if [ -z "$NUM_GPUS" ]; then
   echo "No GPU is allocated"
@@ -85,10 +106,14 @@ VLLM_PORT=$((23400 + ${FIRST_GPU_ID}))
 
 # Setting log directory
 IMAGE_TAG=${VLLM_IMAGE##*:}
-LOG_DIR="logs/${IMAGE_TAG}/${MODEL_NAME}/${ENV_FILE}"
+
+LOG_DIR="logs/${MODEL_NAME}/${IMAGE_TAG}"
+if [[ "$BENCH_SCAPE_OPT" == "sweep" ]]; then
+    LOG_DIR="logs/${MODEL_NAME}/${IMAGE_TAG}"
+fi
 mkdir -p ${LOG_DIR}
 CONSOLIDATED_LOG="$LOG_DIR/benchmark_result.log"
-ERROR_LOG_FILE="slogs/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.err"
+SERVER_LOG_FILE="$LOG_DIR/server_log.txt"
 
 if [[ ${PROFILE} ]]; then
     VLLM_TORCH_PROFILER_DIR_OPT="-e VLLM_TORCH_PROFILER_DIR=$LOG_DIR"
@@ -96,23 +121,23 @@ if [[ ${PROFILE} ]]; then
 fi
 
 # Header for terminal output
-printf "%-8s\t%-8s\t%-8s\t%-8s\t%-20s\t%-25s\t%-20s\t%-20s\n" \
-"TP Size" "Client Count" "Input Length" "Output Length" "Mean TTFT (ms)" "Median TTFT (ms)" "P99 TTFT (ms)" "Mean TPOT (ms)" "Median TPOT (ms)" "P99 TPOT (ms)" \
-"Mean ITL (ms)" "Median ITL (ms)" "P99 ITL (ms)" "Mean E2EL (ms)" "Request Throughput (req/s)" "Output token throughput (tok/s)" "Total Token throughput (tok/s)"
+printf "%-30s\t%-8s\t%-8s\t%-8s\t%-8s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\n" \
+"ENV" "TP Size" "Client Count" "Input Length" "Output Length" "Mean TTFT (ms)" "Median TTFT" "P99 TTFT" "Mean TPOT" "Median TPOT" "P99 TPOT" \
+"Mean ITL" "Median ITL" "P99 ITL" "Mean E2EL" "Request THPT (req/s)" "Output token THPT" "Total Token THPT"
 echo "------------------------------------------------------------------------------------------------------------------------------------------------"
 
-RESULT_FILE="$LOG_DIR/result_${ENV_FILE}_t${TENSOR_PARALLEL_SIZE}"
+RESULT_FILE="$LOG_DIR/result_list"
 if [[ -f "$RESULT_FILE" ]]; then
     echo "Result file already exists. Appending to it."
 else
     echo "Creating new result file."
-    echo "TP Size,Client Count,Input Length,Output Length,Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),Mean ITL (ms),Median ITL (ms),P99 ITL (ms),Mean E2EL (ms),Request Throughput (req/s),Output token throughput (tok/s),Total Token throughput (tok/s)" > "$RESULT_FILE"
+    echo "env,TP Size,Client Count,Input Length,Output Length,Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),Mean ITL (ms),Median ITL (ms),P99 ITL (ms),Mean E2EL (ms),Request Throughput (req/s),Output token throughput (tok/s),Total Token throughput (tok/s)" > "$RESULT_FILE"
     echo "" > "$CONSOLIDATED_LOG"
 fi
 
-if [ $(podman ps -a -q -f name=$CONTAINER_NAME) ]; then
+if [ $(docker ps -a -q -f name=$CONTAINER_NAME) ]; then
     echo "Removing container ${CONTAINER_NAME} ..."
-    podman rm -f $CONTAINER_NAME
+    docker rm -f $CONTAINER_NAME
 fi
 
 
@@ -133,41 +158,38 @@ fi
 # Prepare output    
 MAX_MODEL_LEN=$((${INPUT_LENGTHS[-1]} + ${OUTPUT_LENGTHS[-1]} + 256))
 
-# set -x
-# python -m vllm.entrypoints.openai.api_server \
-podman run -d --name "$CONTAINER_NAME" \
+set -x
+docker run -d --name "$CONTAINER_NAME" \
     -v "$HF_HOME:/root/.cache/huggingface" \
     --device /dev/kfd --device /dev/dri --device /dev/mem \
-    --group-add keep-groups \
+    --group-add video \
     --ipc=host --network=host \
     --cap-add=CAP_SYS_ADMIN \
     --cap-add=SYS_PTRACE \
     --security-opt seccomp=unconfined \
     --env-file ${ENV_FILE_PATH} \
     -e VLLM_USE_TRITON_FLASH_ATTN=${VLLM_USE_TRITON_FLASH_ATTN} \
-    -e VLLM_ROCM_USE_AITER_RMSNORM=${VLLM_ROCM_USE_AITER_RMSNORM} \
     -e CUDA_VISIBLE_DEVICES=${CUSTOM_VISIBLE_DEVICES_OPT} \
     ${VLLM_TORCH_PROFILER_DIR_OPT} \
     --volume ${HOME}:/workspace/ \
     ${VLLM_IMAGE} \
     vllm serve \
     ${MODEL_NAME_PATH} \
-    --no-enable-prefix-caching \
     --disable-log-requests \
     --trust-remote-code \
     --max-model-len=${MAX_MODEL_LEN} \
     --tensor-parallel-size ${TENSOR_PARALLEL_SIZE} \
+    --distributed-executor-backend mp \
     --port=${VLLM_PORT} \
-    --gpu_memory_utilization=${GPU_MEMORY_UTILIZATION:-"0.9"} \
     ${VLLM_ARGS} \
     --host 0.0.0.0 > /dev/null 1>&2 &
-    # --max-model-len=${MAX_MODEL_LEN} \
-# set +x
+set +x
+
 # --- Server Health Check ---
 
 # echo "Waiting for the server to become available..."
 sleep 5
-podman logs -f ${CONTAINER_NAME} > /dev/null 2>> ${ERROR_LOG_FILE} &
+docker logs -f ${CONTAINER_NAME} > /dev/null 2>> ${SERVER_LOG_FILE} &
 LOG_COLLECTOR_PID=$! # saving logging background process to terminiate this
 
 TIMEOUT=6000 # 60-minute timeout
@@ -176,9 +198,9 @@ START_TIME=$SECONDS
 while ! curl --silent --fail http://localhost:${VLLM_PORT}/v1/models > /dev/null; do
     if (( SECONDS - START_TIME > TIMEOUT )); then
 # set -x
-        podman logs "$CONTAINER_NAME" 1>&2
+        docker logs "$CONTAINER_NAME" 1>&2
         echo "Error: Server failed to start within $TIMEOUT seconds."
-        podman rm -f "$CONTAINER_NAME"
+        docker rm -f "$CONTAINER_NAME"
         exit 1
 # set +x
     fi
@@ -186,13 +208,13 @@ while ! curl --silent --fail http://localhost:${VLLM_PORT}/v1/models > /dev/null
 done
 
 # collect server initialization logs
-podman logs "$CONTAINER_NAME" >> "$CONSOLIDATED_LOG"
+docker logs "$CONTAINER_NAME" >> "$CONSOLIDATED_LOG"
 echo "Server is up and running."
 
 # warmup
 # set -x
-NUM_PROMPTS=64
-podman exec "$CONTAINER_NAME" \
+NUM_PROMPTS=16
+docker exec "$CONTAINER_NAME" \
     python /app/vllm/benchmarks/benchmark_serving.py \
         --backend vllm \
         --host localhost \
@@ -202,10 +224,10 @@ podman exec "$CONTAINER_NAME" \
         --ignore-eos \
         --trust-remote-code \
         --num-prompts $NUM_PROMPTS \
-        --request-rate 4 \
+        --max-concurrency 4 \
         --random-input-len 256 \
         --random-output-len 256 \
-        --tokenizer $MODEL_NAME_PATH
+        --tokenizer $MODEL_NAME_PATH > /dev/null
 # set +x
 
 
@@ -220,10 +242,10 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
     readline=$(grep -F "$unique_key" "$RESULT_FILE")
 
     if [ -n "$readline" ]; then
-        IFS=',' read -r f_tp f_bs f_in f_out f_prefill f_thp f_lat f_rthp <<< "$readline"
+        IFS=',' read -r s_env f_tp f_bs f_in f_out f_ttft_mean f_ttft_median f_ttft_p99 f_tpot_mean f_tpot_median f_tpot_p99 f_itl_mean f_itl_median f_itl_p99 f_e2el_mean f_rthpt f_othpt f_tthpt <<< "$readline"
 
-        printf "%-8s\t%-8s\t%-8s\t%-8s\t%-20s\t%-25s\t%-20s\t%-20s\n" \
-        "$f_tp" "$f_bs" "$f_in" "$f_out" "$f_prefill" "$f_thp" "$f_lat" "$f_rthp"
+        printf "%-30s\t%-8s\t%-8s\t%-8s\t%-8s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\n" \
+        "$s_env" "$f_tp" "$f_bs" "$f_in" "$f_out" "$f_ttft_mean" "$f_ttft_median" "$f_ttft_p99" "$f_tpot_mean" "$f_tpot_median" "$f_tpot_p99" "$f_itl_mean" "$f_itl_median" "$f_itl_p99" "$f_e2el_mean" "$f_rthpt" "$f_othpt" "$f_tthpt"
         continue
     fi
     
@@ -233,9 +255,11 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
     # Run the benchmark and save the results
     LOG_FILE="$LOG_DIR/vllm_tp${TENSOR_PARALLEL_SIZE}_i${INPUT_LENGTH}_o${OUTPUT_LENGTH}_c${CLIENT_COUNT}.log"
     # set -x
-    NUM_PROMPTS=$(($CLIENT_COUNT + $NUM_ITERATION))
-    podman exec "$CONTAINER_NAME" \
-        python /app/vllm/benchmarks/benchmark_serving.py \
+    NUM_ITERATION=1
+    NUM_PROMPTS=$((${CLIENT_COUNT} + ${NUM_ITERATION}))
+    docker exec "$CONTAINER_NAME" \
+	vllm bench serve \
+	    --model ${MODEL_NAME_PATH} \
             --backend vllm \
             --host localhost \
             --port ${VLLM_PORT} \
@@ -244,7 +268,7 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
             --ignore-eos \
             --trust-remote-code \
             --num-prompts $NUM_PROMPTS \
-            --request-rate $CLIENT_COUNT \
+            --max-concurrency $CLIENT_COUNT \
             --random-input-len $INPUT_LENGTH \
             --random-output-len $OUTPUT_LENGTH \
             --tokenizer $MODEL_NAME_PATH \
@@ -262,13 +286,15 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
         echo -e "\n==============================================\n"
     } >> "$CONSOLIDATED_LOG"
 
+    echo $LOG_FILE
+
     # Extract metrics
     PREFILL_LATENCY_MEAN=$(awk '/Mean TTFT \(ms\)/ { printf "%.2f", $NF }' "$LOG_FILE")
     PREFILL_LATENCY_MEDIAN=$(awk '/Median TTFT \(ms\)/ { printf "%.2f", $NF }' "$LOG_FILE")
     PREFILL_LATENCY_P99=$(awk '/P99 TTFT \(ms\)/ { printf "%.2f", $NF }' "$LOG_FILE")
-    DECODE_TPUT_MEAN=$(awk '/Mean TPOT \(ms\)/ { print "%.2f", $NF }' "$LOG_FILE")
-    DECODE_TPUT_MEDIAN=$(awk '/Median TPOT \(ms)/ { print "%.2f", $NF }' "$LOG_FILE")
-    DECODE_TPUT_P99=$(awk '/P99 TPOT \(ms)/ { print "%.2f", $NF }' "$LOG_FILE")
+    DECODE_TPUT_MEAN=$(awk '/Mean TPOT \(ms\)/ { printf "%.2f", $NF }' "$LOG_FILE")
+    DECODE_TPUT_MEDIAN=$(awk '/Median TPOT \(ms\)/ { printf "%.2f", $NF }' "$LOG_FILE")
+    DECODE_TPUT_P99=$(awk '/P99 TPOT \(ms\)/ { printf "%.2f", $NF }' "$LOG_FILE")
     ITL_MEAN=$(awk '/Mean ITL \(ms\)/ { printf "%.2f", $NF }' "$LOG_FILE")
     ITL_MEDIAN=$(awk '/Median ITL \(ms\)/ { printf "%.2f", $NF }' "$LOG_FILE")
     ITL_P99=$(awk '/P99 ITL \(ms\)/ { printf "%.2f", $NF }' "$LOG_FILE")
@@ -279,14 +305,15 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
     TOTAL_TOKEN_THROUGHPUT=$(awk '/Total token throughput \(tok\/s\)/ { print $NF }' "$LOG_FILE")
 
     # Fallbacks for empty values
+    echo "ttt" $PREFILL_LATENCY_MEAN $DECODE_TPUT_MEAN $E2E_LATENCY $REQUEST_TPUT
     PREFILL_LATENCY_MEAN=${PREFILL_LATENCY_MEAN:-0.0000}
     DECODE_TPUT_MEAN=${DECODE_TPUT_MEAN:-0.00}
     E2E_LATENCY=${E2E_LATENCY:-0.0000}
     REQUEST_TPUT=${REQUEST_TPUT:-0.00}
 
     # Print formatted row to terminal
-    printf "%-8s\t%-8s\t%-8s\t%-8s\t%-20s\t%-25s\t%-20s\t%-20s\n" \
-    "$TENSOR_PARALLEL_SIZE" "$CLIENT_COUNT" "$INPUT_LENGTH" "$OUTPUT_LENGTH" "$PREFILL_LATENCY_MEAN" "$DECODE_TPUT_MEAN" "$E2E_LATENCY" "$REQUEST_TPUT"
+    printf "%-30s\t%-8s\t%-8s\t%-8s\t%-8s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\t%-12s\n" \
+    "$ENV_FILE" "$TENSOR_PARALLEL_SIZE" "$CLIENT_COUNT" "$INPUT_LENGTH" "$OUTPUT_LENGTH" "$PREFILL_LATENCY_MEAN" "$PREFILL_LATENCY_MEDIAN" "$PREFILL_LATENCY_P99" "$DECODE_TPUT_MEAN" "$DECODE_TPUT_MEDIAN" "$DECODE_TPUT_P99" "$ITL_MEAN" "$ITL_MEDIAN" "$ITL_P99" "$E2E_LATENCY" "$REQUEST_TPUT" "$OTUPUT_TOKEN_THROUGHPUT" "$TOTAL_TOKEN_THROUGHPUT"
 
     if [[ $PREFILL_LATENCY_MEAN == "0.0000" && $DECODE_TPUT_MEAN == "0.00" && $E2E_LATENCY == "0.0000" && $REQUEST_TPUT == "0.00" ]]; then
         echo "Benchmark failed or returned zero metrics. Skipping result saving."
@@ -294,21 +321,21 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
     fi
 
     # Save to CSV
-    echo "$TENSOR_PARALLEL_SIZE,$CLIENT_COUNT,$INPUT_LENGTH,$OUTPUT_LENGTH,$PREFILL_LATENCY_MEAN,$PREFILL_LATENCY_MEDIAN,$PREFILL_LATENCY_P99,$DECODE_TPUT_MEAN,$DECODE_TPUT_MEDIAN,$DECODE_TPUT_P99,$ITL_MEAN,$ITL_MEDIAN,$ITL_P99,$E2E_LATENCY,$REQUEST_TPUT,$OUTPUT_TOKEN_THROUGHPUT,$TOTAL_TOKEN_THROUGHPUT" >> "$RESULT_FILE"
+    echo "$ENV_FILE,$TENSOR_PARALLEL_SIZE,$CLIENT_COUNT,$INPUT_LENGTH,$OUTPUT_LENGTH,$PREFILL_LATENCY_MEAN,$PREFILL_LATENCY_MEDIAN,$PREFILL_LATENCY_P99,$DECODE_TPUT_MEAN,$DECODE_TPUT_MEDIAN,$DECODE_TPUT_P99,$ITL_MEAN,$ITL_MEDIAN,$ITL_P99,$E2E_LATENCY,$REQUEST_TPUT,$OUTPUT_TOKEN_THROUGHPUT,$TOTAL_TOKEN_THROUGHPUT" >> "$RESULT_FILE"
 
     # --- Cleanup ---
 
     # echo "Stopping the vLLM server..."
     # kill ${LOG_COLLECTOR_PID}
-    # podman rm -f "$CONTAINER_NAME" > /dev/null
+    # docker rm -f "$CONTAINER_NAME" > /dev/null
 
 done # CLIENT_COUNT
 done # INPUT_LENGTH
 done # OUTPUT_LENGTH
 
-if [ $(podman ps -a -q -f name=$CONTAINER_NAME) ]; then
+if [ $(docker ps -a -q -f name=$CONTAINER_NAME) ]; then
     echo "Removing container ${CONTAINER_NAME} ..."
-    podman rm -f $CONTAINER_NAME
+    docker rm -f $CONTAINER_NAME
 fi
 
 echo -e "\nBenchmarking complete."
