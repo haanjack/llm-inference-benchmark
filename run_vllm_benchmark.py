@@ -133,9 +133,9 @@ class VLLMBenchmark:
     def _print_header(self):
         """Print the header line to console."""
         # print header line to console
-        headers_split = self._headers[0].split(',')
+        headers_split = self._headers.join().split(',')
         headers_line = [headers_split[0].ljust(30)]
-        headers_line += [h.rjust(6) for h in headers_split[1:5]]
+        headers_line += [h.rjust(8) for h in headers_split[1:5]]
         headers_line += [h.rjust(10) for h in headers_split[5:]]
         logger.info('\t'.join(headers_line))
 
@@ -334,7 +334,7 @@ class VLLMBenchmark:
                     if search_str in line:
                         line = line.strip()
                         s_line = [line.split(',')[0].ljust(30)]
-                        s_line += [h.rjust(6) for h in line.split(',')[1:5]] 
+                        s_line += [h.rjust(8) for h in line.split(',')[1:5]] 
                         s_line += [h.rjust(10) for h in line.split(',')[5:]]
                         logger.info(f"{''.join(s_line)}")
         return search_result
