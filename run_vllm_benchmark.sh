@@ -26,7 +26,7 @@ if [[ ${BENCH_SCAPE_OPT} == "test" || ${BENCH_SCAPE_OPT} == "sweep" ]]; then
     OUTPUT_LENGTH=(2048)
 elif [[ ${BENCH_SCAPE_OPT} == "prefill" ]]; then
     CLIENT_COUNTS=(1 2 4 8 16 32 64 128)
-    INPUT_LENGTHS=(2048 4096 8192)
+    INPUT_LENGTHS=(256 512 1024 2048 4096 8192)
     OUTPUT_LENGTHS=(128)
 elif [[ ${BENCH_SCAPE_OPT} == "decode" ]]; then
     CLIENT_COUNTS=(1 2 4 8 16 32 64 128)
@@ -34,19 +34,19 @@ elif [[ ${BENCH_SCAPE_OPT} == "decode" ]]; then
     OUTPUT_LENGTHS=(128 1024 2048 4096)
 elif [[ ${BENCH_SCAPE_OPT} == "middle" ]]; then
     CLIENT_COUNTS=(1 2 4 8 16 32 64 128)
-    INPUT_LENGTHS=(4096 8192)
-    OUTPUT_LENGTHS=(2048 4096)
+    INPUT_LENGTHS=(1024 2048 4096 8192)
+    OUTPUT_LENGTHS=(1024 2048 4096)
 fi
 
 # GPU index
 CUSTOM_VISIBLE_DEVICES_OPT=${5:-"${SLURM_JOB_GPUS}"}
 
+# --quantization=${QUANTIZATION}
 VLLM_ARGS="
---quantization=${QUANTIZATION}
 --kv-cache-dtype=${KV_CACHE_DTYPE} 
 --gpu_memory_utilization=${GPU_MEMORY_UTILIZATION:-"0.9"} 
 --max-seq-len-to-capture ${MAX_SEQ_LEN_TO_CAPTURE:-"8192"} 
---max-num-batched-token ${MAX_NUM_BATEHD_TOKENS:-"8192"} 
+--max-num-batched-token ${MAX_NUM_BATCHED_TOKENS:-"8192"} 
 --swap-space 64
 --no-enable-prefix-caching 
 --async-scheduling "
@@ -72,8 +72,13 @@ else
                 VLLM_ARGS="${VLLM_ARGS} --compilation-config {\"cudagraph_mode\": \"FULL_DECODE_ONLY\"} "
             elif [[ ${VLLM_CUDAGRAPH_MODE} == "FULL_AND_PIECEWISE" ]]; then
                 VLLM_ARGS="${VLLM_ARGS} --compilation-config {\"cudagraph_mode\": \"FULL_AND_PIECEWISE\"} "
+            elif [[ ${VLLM_CUDAGRAPH_MODE} == "MOE" ]]; then
+                VLLM_ARGS="${VLLM_ARGS} --compilation-config \'{\"compile_sizes\":[1, 2, 4, 8, 16, 24, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192], \"cudagraph_capture_sizes\":[8192,4096,2048,1024,1008,992,976,960,944,928,912,896,880,864,848,832,816,800,784,768,752,736,720,704,688,672,656,640,624,608,592,576,560,544,528,512,496,480,464,448,432,416,400,384,368,352,336,320,304,288,272,256,248,240,232,224,216,208,200,192,184,176,168,160,152,144,136,128,120,112,104,96,88,80,72,64,56,48,40,32,24,16,8,4,2,1], \"full_cuda_graph\": true}\' "
+            else
+                echo "Unknown VLLM_CUDAGRAPH_MODE: ${VLLM_CUDAGRAPH_MODE}"
+                exit 1
             fi
-	fi
+	    fi
     fi
 fi
 
@@ -238,7 +243,7 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
     # --- Server Startup ---
 
     # check if benchmark is done
-    unique_key="$TENSOR_PARALLEL_SIZE,$CLIENT_COUNT,$INPUT_LENGTH,$OUTPUT_LENGTH"
+    unique_key="$ENV_FILE,$TENSOR_PARALLEL_SIZE,$CLIENT_COUNT,$INPUT_LENGTH,$OUTPUT_LENGTH"
     readline=$(grep -F "$unique_key" "$RESULT_FILE")
 
     if [ -n "$readline" ]; then
@@ -255,26 +260,26 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
     # Run the benchmark and save the results
     LOG_FILE="$LOG_DIR/vllm_tp${TENSOR_PARALLEL_SIZE}_i${INPUT_LENGTH}_o${OUTPUT_LENGTH}_c${CLIENT_COUNT}.log"
     # set -x
-    NUM_ITERATION=1
-    NUM_PROMPTS=$((${CLIENT_COUNT} + ${NUM_ITERATION}))
+    NUM_ITERATION=8
+    NUM_PROMPTS=$((${CLIENT_COUNT} * ${NUM_ITERATION}))
     docker exec "$CONTAINER_NAME" \
 	vllm bench serve \
 	    --model ${MODEL_NAME_PATH} \
-            --backend vllm \
-            --host localhost \
-            --port ${VLLM_PORT} \
-            --model $MODEL_NAME_PATH \
-            --dataset-name random \
-            --ignore-eos \
-            --trust-remote-code \
-            --num-prompts $NUM_PROMPTS \
-            --max-concurrency $CLIENT_COUNT \
-            --random-input-len $INPUT_LENGTH \
-            --random-output-len $OUTPUT_LENGTH \
-            --tokenizer $MODEL_NAME_PATH \
-            --disable-tqdm \
-            ${PROFILE_OPT} \
-            --percentile-metrics ttft,tpot,itl,e2el > "$LOG_FILE" 2>&1
+        --backend vllm \
+        --host localhost \
+        --port ${VLLM_PORT} \
+        --model $MODEL_NAME_PATH \
+        --dataset-name random \
+        --ignore-eos \
+        --trust-remote-code \
+        --num-prompts $NUM_PROMPTS \
+        --max-concurrency $CLIENT_COUNT \
+        --random-input-len $INPUT_LENGTH \
+        --random-output-len $OUTPUT_LENGTH \
+        --tokenizer $MODEL_NAME_PATH \
+        --disable-tqdm \
+        --percentile-metrics ttft,tpot,itl,e2el > "$LOG_FILE" 2>&1
+        ${PROFILE_OPT} \
     # set +x
 
     # --- Reporting ---
@@ -302,10 +307,9 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
 
     REQUEST_TPUT=$(awk '/Request throughput \(req\/s\)/ { print $NF }' "$LOG_FILE")
     OUTPUT_TOKEN_THROUGHPUT=$(awk '/Output token throughput \(tok\/s\)/ { print $NF }' "$LOG_FILE")
-    TOTAL_TOKEN_THROUGHPUT=$(awk '/Total token throughput \(tok\/s\)/ { print $NF }' "$LOG_FILE")
+    TOTAL_TOKEN_THROUGHPUT=$(awk '/Total Token throughput \(tok\/s\)/ { print $NF }' "$LOG_FILE")
 
     # Fallbacks for empty values
-    echo "ttt" $PREFILL_LATENCY_MEAN $DECODE_TPUT_MEAN $E2E_LATENCY $REQUEST_TPUT
     PREFILL_LATENCY_MEAN=${PREFILL_LATENCY_MEAN:-0.0000}
     DECODE_TPUT_MEAN=${DECODE_TPUT_MEAN:-0.00}
     E2E_LATENCY=${E2E_LATENCY:-0.0000}
@@ -321,7 +325,7 @@ for CLIENT_COUNT in "${CLIENT_COUNTS[@]}"; do
     fi
 
     # Save to CSV
-    echo "$ENV_FILE,$TENSOR_PARALLEL_SIZE,$CLIENT_COUNT,$INPUT_LENGTH,$OUTPUT_LENGTH,$PREFILL_LATENCY_MEAN,$PREFILL_LATENCY_MEDIAN,$PREFILL_LATENCY_P99,$DECODE_TPUT_MEAN,$DECODE_TPUT_MEDIAN,$DECODE_TPUT_P99,$ITL_MEAN,$ITL_MEDIAN,$ITL_P99,$E2E_LATENCY,$REQUEST_TPUT,$OUTPUT_TOKEN_THROUGHPUT,$TOTAL_TOKEN_THROUGHPUT" >> "$RESULT_FILE"
+    echo "$ENV_FILE,$TENSOR_PARALLEL_SIZE,$CLIENT_COUNT,$INPUT_LENGTH,$OUTPUT_LENGTH,$PREFILL_LATENCY_MEAN,$PREFILL_LATENCY_MEDIAN,$PREFILL_LATENCY_P99,$DECODE_TPUT_MEAN,$DECODE_TPUT_MEDIAN,$DECODE_TPUT_P99,$ITL_MEAN,$ITL_MEDIAN,$ITL_P99,$E2E_LATENCY,$REQUEST_TPUT,$OUTPUT_TOKEN_THROUGHPUT,$TOTAL_TOKEN_THROUGHPUT," >> "$RESULT_FILE"
 
     # --- Cleanup ---
 
