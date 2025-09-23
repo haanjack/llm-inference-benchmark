@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
 import logging
 import os
 import subprocess
@@ -133,7 +132,7 @@ class VLLMBenchmark:
     def _print_header(self):
         """Print the header line to console."""
         # print header line to console
-        headers_split = self._headers.join().split(',')
+        headers_split = ''.join(self._headers).split(',')
         headers_line = [headers_split[0].ljust(30)]
         headers_line += [h.rjust(8) for h in headers_split[1:5]]
         headers_line += [h.rjust(10) for h in headers_split[5:]]
