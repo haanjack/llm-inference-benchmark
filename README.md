@@ -1,5 +1,7 @@
 # Benchmark guide
 
+This is simple scripts that helps extensive inference tests for various setups.
+
 bash benchmark.sh <env> <model> <docker> <test-opt> <gpu-ids>
 ```
 bash benchmark.sh attention_v1_aiter_on Qwen/Qwen3-32B-FP8 docker.io/rocm/vllm-dev:nightly_main_20250903 test 0
@@ -7,7 +9,8 @@ bash benchmark.sh attention_v1_aiter_on Qwen/Qwen3-32B-FP8 docker.io/rocm/vllm-d
 
 For tensor parallel,
 ```
-TP_SIZE=2 bash benchmark.sh attention_v1_aiter_on Qwen/Qwen3-32B-FP8 docker.io/rocm/vllm-dev:nightly_main_20250903 test 0
+# TP2
+bash benchmark.sh attention_v1_aiter_on Qwen/Qwen3-32B-FP8 docker.io/rocm/vllm-dev:nightly_main_20250903 test 0,1
 ```
 
 # TODO
