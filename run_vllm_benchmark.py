@@ -25,9 +25,11 @@ class VLLMBenchmark:
                  vllm_image: Optional[str] = None, 
                  bench_scope: str = "test",
                  custom_visible_devices: Optional[str] = None,
-                 num_iterations: int = 8):
+                 num_iterations: int = 8,
+                 dry_run: bool = False):
         self.env_file = env_file
         self.env_vars = self._load_env_file()
+        self.dry_run = dry_run
         
         # Initialize configuration
         self.model_name = model_name or self.env_vars.get("MODEL_NAME", "Meta-Llama-3-8B-Instruct-FP8")
@@ -150,7 +152,7 @@ class VLLMBenchmark:
             "--async-scheduling"
         ]
         if self.env_vars.get('QUANTIZATION', 'auto') != 'auto':
-            args.extend("--quantization", f"{self.env_vars.get('QUANTIZATION')}")
+            args.extend(["--quantization", f"{self.env_vars.get('QUANTIZATION')}"])
 
         vllm_use_v1 = self.env_vars.get("VLLM_USE_V1", "0")
         if vllm_use_v1 == "0":
@@ -196,7 +198,8 @@ class VLLMBenchmark:
 
     def start_server(self, max_model_len: int):
         """Start the vLLM server in a Docker container."""
-        self._cleanup_container()
+        if not self.dry_run:
+            self._cleanup_container()
         
         cmd = [
             "docker", "run", "-d",
@@ -207,9 +210,10 @@ class VLLMBenchmark:
             "--ipc=host", "--network=host",
             "--cap-add=CAP_SYS_ADMIN",
             "--cap-add=SYS_PTRACE",
+            "--shm-size=2g",
             "--security-opt", "seccomp=unconfined",
             "--env-file", str(Path.cwd() / "envs" / self.env_file),
-            "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self.env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '')}",
+            "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self.env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
             "-e", f"CUDA_VISIBLE_DEVICES={self.gpu_devices}",
             "-v", f"{os.environ.get('HOME')}:/workspace/",
             self.vllm_image,
@@ -220,12 +224,18 @@ class VLLMBenchmark:
             "--max-model-len", f"{max_model_len}",
             "--tensor-parallel-size", f"{self.num_gpus}",
             "--distributed-executor-backend", "mp",
+            "--block-size", "64",
             "--port", f"{self.vllm_port}",
             "--host", "0.0.0.0"
         ]
         
         cmd.extend(self._get_vllm_args().split())
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+        
+        if self.dry_run:
+            logger.info("Dry run - Docker server command:")
+            logger.info(" ".join(cmd))
+        else:
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         
         # Start log collection
         with open(self.server_log, 'a') as f:
@@ -283,14 +293,14 @@ class VLLMBenchmark:
 
     def run_single_benchmark(self, client_count: int, input_length: int, output_length: int):
         """Run a single benchmark iteration."""
-        log_file = self.log_dir / f"vllm_tp{self.num_gpus}_i{input_length}_o{output_length}_c{client_count}.log"
+        log_file = self.log_dir / f"vllm_tp{self.env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_i{input_length}_o{output_length}_c{client_count}.log"
         
         # Check if this configuration has already been tested
-        if self._check_existing_result(client_count, input_length, output_length):
+        if not self.dry_run and self._check_existing_result(client_count, input_length, output_length):
             # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
             return
 
-        num_prompts = client_count * self._num_iterations
+        num_prompts = client_count + self._num_iterations
         cmd = [
             "docker", "exec", self.container_name,
             "vllm", "bench", "serve",
@@ -310,13 +320,18 @@ class VLLMBenchmark:
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ]
 
-        with open(log_file, 'w') as f:
-            subprocess.run(cmd, stdout=f, stderr=f, check=True)
+        if self.dry_run:
+            logger.info(f"Dry run - Benchmark command for c{client_count}_i{input_length}_o{output_length}:")
+            logger.info(" ".join(cmd))
+        else:
+            with open(log_file, 'w') as f:
+                subprocess.run(cmd, stdout=f, stderr=f, check=True)
 
         # Process and save results
-        metrics = self._extract_metrics(log_file)
-        self._save_results(client_count, input_length, output_length, metrics)
-        self._print_result(client_count, input_length, output_length, metrics)
+        if not self.dry_run:
+            metrics = self._extract_metrics(log_file)
+            self._save_results(client_count, input_length, output_length, metrics)
+            self._print_result(client_count, input_length, output_length, metrics)
 
     def _check_existing_result(self, client_count: int, input_length: int, output_length: int) -> bool:
         """Check if results already exist for this configuration."""
@@ -375,10 +390,11 @@ class VLLMBenchmark:
         # Start server for this configuration
         max_model_len = self.input_lengths[-1] + self.output_lengths[-1] + 256
         self.start_server(max_model_len)
-        if not self._wait_for_server():
-            raise RuntimeError("Server failed to start")
+        if not self.dry_run:
+            if not self._wait_for_server():
+                raise RuntimeError("Server failed to start")
         
-        logger.info("Server is up and running")
+            logger.info("Server is up and running")
         
         # Warmup
         warmup_cmd = [
@@ -397,10 +413,11 @@ class VLLMBenchmark:
             "--random-output-len", "256",
             "--tokenizer", self.model_path
         ]
-        subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL)
-        logger.info("Warmup complete")
+        if not self.dry_run:
+            subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL)
+            logger.info("Warmup complete")
 
-        self._print_header()
+            self._print_header()
 
         # Run benchmarks for all configurations
         for output_length in self.output_lengths:
@@ -416,7 +433,8 @@ class VLLMBenchmark:
         # Cleanup container after this configuration
         self._cleanup_container()
 
-        logger.info(f"Benchmarking complete. Results saved to {self.result_file}")
+        if not self.dry_run:
+            logger.info(f"Benchmarking complete. Results saved to {self.result_file}")
 
 def main():
     parser = argparse.ArgumentParser(description='Run vLLM benchmarks')
@@ -427,7 +445,8 @@ def main():
                        choices=['test', 'prefill', 'decode', 'middle'],
                        help='Benchmark scope')
     parser.add_argument('--gpu-devices', help='Comma-separated GPU device IDs')
-    parser.add_argument('--num-iterations', type=int, default=8, help='Number of iterations per benchmark')
+    parser.add_argument('--dry-run', action='store_true', 
+                       help='Show commands without executing them')
     
     args = parser.parse_args()
     
@@ -438,7 +457,7 @@ def main():
             vllm_image=args.vllm_image,
             bench_scope=args.bench_scope,
             custom_visible_devices=args.gpu_devices,
-            num_iterations=args.num_iterations
+            dry_run=args.dry_run
         )
         benchmark.run_benchmark()
     except Exception as e:
