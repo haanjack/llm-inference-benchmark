@@ -48,9 +48,11 @@ class VLLMBenchmark:
         
         # Result file headers
         self._headers = [
-            "env,TP Size,Client Count,Input Length,Output Length,Mean TTFT (ms),",
-            "Median TTFT (ms),P99 TTFT (ms),Mean TPOT (ms),Median TPOT (ms),",
-            "P99 TPOT (ms),Mean ITL (ms),Median ITL (ms),P99 ITL (ms),Mean E2EL (ms),",
+            "env,TP Size,Client Count,Input Length,Output Length,",
+            "Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),",
+            "Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),",
+            "Mean ITL (ms),Median ITL (ms),P99 ITL (ms),",
+            "Mean E2EL (ms),Median E2EL (ms),P99 E2EL (ms),",
             "Request Throughput (req/s),Output token throughput (tok/s),",
             "Total Token throughput (tok/s)"
         ]
@@ -279,6 +281,8 @@ class VLLMBenchmark:
             'itl_median': r'Median ITL \(ms\):\s*([\d.]+)',
             'itl_p99': r'P99 ITL \(ms\):\s*([\d.]+)',
             'e2el_mean': r'Mean E2EL \(ms\):\s*([\d.]+)',
+            'e2el_median': r'Median E2EL \(ms\):\s*([\d.]+)',
+            'e2el_p99': r'P99 E2EL \(ms\):\s*([\d.]+)',
             'request_throughput': r'Request throughput \(req/s\):\s*([\d.]+)',
             'output_token_throughput': r'Output token throughput \(tok/s\):\s*([\d.]+)',
             'total_token_throughput': r'Total Token throughput \(tok/s\):\s*([\d.]+)'
@@ -361,7 +365,8 @@ class VLLMBenchmark:
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
             f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
-            f"{metrics['e2el_mean']:.2f},{metrics['request_throughput']:.2f},"
+            f"{metrics['e2el_mean']:.2f},{metrics['e2el_median']:.2f},{metrics['e2el_p99']:.2f},"
+            f"{metrics['request_throughput']:.2f},"
             f"{metrics['output_token_throughput']:.2f},{metrics['total_token_throughput']:.2f}\n"
         )
         
