@@ -123,18 +123,20 @@ class VLLMBenchmark:
             self.client_counts = []
             self.input_lengths = []
             self.output_lengths = []
-            
+            self.num_iterations = []
+
             with open(custom_scope_path) as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith('#'):  # Skip empty lines and comments
                         continue
                     try:
-                        r, c, i, o = map(int, line.split())
+                        r, c, i, o, n = map(int, line.split())
                         self.request_rates.append(r)
                         self.client_counts.append(c)
                         self.input_lengths.append(i)
                         self.output_lengths.append(o)
+                        self.num_iterations.append(n)
                     except ValueError as e:
                         logger.warning(f"Skipping invalid line: {line} - {str(e)}")
                         continue
@@ -345,7 +347,7 @@ class VLLMBenchmark:
             
         return metrics
 
-    def run_single_benchmark(self, request_rate: Union[int, str], client_count: int, input_length: int, output_length: int):
+    def run_single_benchmark(self, request_rate: Union[int, str], client_count: int, input_length: int, output_length: int, num_iterations: Optional[int] = None):
         """Run a single benchmark iteration."""
         log_file = self.log_dir / f"vllm_tp{self.env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_i{input_length}_o{output_length}_c{client_count}.log"
         
@@ -355,6 +357,8 @@ class VLLMBenchmark:
             return
 
         num_prompts = client_count * self.env_vars.get('NUM_ITERATIONS', self._num_iterations)
+        if num_iterations is not None:
+            num_prompts = client_count * num_iterations
         cmd = [
             "docker", "exec", self.container_name,
             "vllm", "bench", "serve",
@@ -476,11 +480,11 @@ class VLLMBenchmark:
 
         # Run benchmarks for all configurations
         if self._bench_scope == "custom":
-            for r, c, i, o in zip(self.request_rates, self.client_counts, self.input_lengths, self.output_lengths):
+            for r, c, i, o, n in zip(self.request_rates, self.client_counts, self.input_lengths, self.output_lengths, self.num_iterations):
                 try:
-                    self.run_single_benchmark(r, c, i, o)
+                    self.run_single_benchmark(r, c, i, o, n)
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Benchmark failed for c{c}_i{i}_o{o}: {str(e)}")
+                    logger.error(f"Benchmark failed for c{c}_i{i}_o{o}_n{n}: {str(e)}")
                     continue
             # Cleanup container after this configuration
             self._cleanup_container()
