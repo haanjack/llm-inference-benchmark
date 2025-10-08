@@ -28,10 +28,12 @@ class VLLMBenchmark:
                  custom_visible_devices: Optional[str] = None,
                  num_iterations: int = 8,
                  request_rate: int = None,
+                 custom_scope_file: Optional[str] = None,
                  dry_run: bool = False):
         self.env_file = env_file
         self.env_vars = self._load_env_file()
         self.dry_run = dry_run
+        self._bench_scope = bench_scope
         
         # Initialize configuration
         self.model_name = model_name or self.env_vars.get("MODEL_NAME", "Meta-Llama-3-8B-Instruct-FP8")
@@ -39,9 +41,10 @@ class VLLMBenchmark:
         self.vllm_image = vllm_image or self.env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
         
         # Set benchmark parameters based on scope
-        self._set_benchmark_scope(bench_scope)
+        self._set_benchmark_scope()
         self._num_iterations = num_iterations
         self._request_rate = request_rate
+        self._custom_scope_file = custom_scope_file
         
         # GPU configuration
         self.gpu_devices = custom_visible_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
@@ -88,24 +91,59 @@ class VLLMBenchmark:
                         continue
         return env_vars
 
-    def _set_benchmark_scope(self, scope: str):
+    def _set_benchmark_scope(self):
         """Set benchmark parameters based on scope."""
-        if scope == "test":
+        if self._bench_scope == "test":
             self.client_counts = [4]
             self.input_lengths = [2048]
             self.output_lengths = [2048]
-        elif scope == "prefill":
+        elif self._bench_scope == "prefill":
             self.client_counts = [1, 2, 4, 8, 16, 32, 64, 128]
             self.input_lengths = [256, 512, 1024, 2048, 4096, 8192]
             self.output_lengths = [128]
-        elif scope == "decode":
+        elif self._bench_scope == "decode":
             self.client_counts = [1, 2, 4, 8, 16, 32, 64, 128]
             self.input_lengths = [128]
             self.output_lengths = [128, 1024, 2048, 4096]
-        elif scope == "middle":
+        elif self._bench_scope == "middle":
             self.client_counts = [1, 2, 4, 8, 16, 32, 64, 128]
             self.input_lengths = [1024, 2048, 4096, 8192]
             self.output_lengths = [1024, 2048, 4096]
+        elif self._bench_scope == "custom":
+            # load from test combinations in self._custom_scope_file
+            # combinations should be in the format of "request_rate client_count input_length output_length"
+            # one combination per line
+            if not self._custom_scope_file:
+                raise ValueError("Custom scope file must be provided for custom scope")
+            custom_scope_path = Path(self._custom_scope_file)
+            if not custom_scope_path.exists():
+                raise FileNotFoundError(f"Custom scope file not found: {custom_scope_path}")
+            
+            self.request_rates = []
+            self.client_counts = []
+            self.input_lengths = []
+            self.output_lengths = []
+            
+            with open(custom_scope_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):  # Skip empty lines and comments
+                        continue
+                    try:
+                        r, c, i, o = map(int, line.split())
+                        self.request_rates.append(r)
+                        self.client_counts.append(c)
+                        self.input_lengths.append(i)
+                        self.output_lengths.append(o)
+                    except ValueError as e:
+                        logger.warning(f"Skipping invalid line: {line} - {str(e)}")
+                        continue
+            
+            if not self.client_counts:  # Check if we have any valid combinations
+                raise ValueError("No valid test combinations found in custom scope file")
+
+        else:
+            raise ValueError(f"Invalid benchmark scope: {self._bench_scope}")
         
 
     def _setup_container_name(self):
@@ -160,8 +198,6 @@ class VLLMBenchmark:
         ]
         if self.env_vars.get('QUANTIZATION', 'auto') != 'auto':
             args.extend(["--quantization", f"{self.env_vars.get('QUANTIZATION')}"])
-        if self._request_rate is not None:
-            args.extend(["--request-rate", f"{self.env_vars.get('REQUEST_RATE', str(self._request_rate))}"])
         if torch.version.hip:
             rocm_version_nums = [int(x) for x in re.findall(r'\d+', torch.version.hip)]
             if len(rocm_version_nums) >= 2:
@@ -306,7 +342,7 @@ class VLLMBenchmark:
             
         return metrics
 
-    def run_single_benchmark(self, client_count: int, input_length: int, output_length: int):
+    def run_single_benchmark(self, request_rate: Union[int, str], client_count: int, input_length: int, output_length: int):
         """Run a single benchmark iteration."""
         log_file = self.log_dir / f"vllm_tp{self.env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_i{input_length}_o{output_length}_c{client_count}.log"
         
@@ -327,6 +363,7 @@ class VLLMBenchmark:
             "--ignore-eos",
             "--trust-remote-code",
             f"--num-prompts={num_prompts}",
+            f"--request-rate={request_rate}",
             f"--max-concurrency={client_count}",
             f"--random-input-len={input_length}",
             f"--random-output-len={output_length}",
@@ -435,15 +472,29 @@ class VLLMBenchmark:
             self._print_header()
 
         # Run benchmarks for all configurations
-        for output_length in self.output_lengths:
-            for input_length in self.input_lengths:
-                # Run benchmarks for all client counts
-                for client_count in self.client_counts:
-                    try:
-                        self.run_single_benchmark(client_count, input_length, output_length)
-                    except subprocess.CalledProcessError as e:
-                        logger.error(f"Benchmark failed for c{client_count}_i{input_length}_o{output_length}: {str(e)}")
-                        continue
+        if self._bench_scope == "custom":
+            for r, c, i, o in zip(self.request_rates, self.client_counts, self.input_lengths, self.output_lengths):
+                try:
+                    self.run_single_benchmark(r, c, i, o)
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Benchmark failed for c{c}_i{i}_o{o}: {str(e)}")
+                    continue
+            # Cleanup container after this configuration
+            self._cleanup_container()
+            if not self.dry_run:
+                logger.info(f"Benchmarking complete. Results saved to {self.result_file}")
+            return
+        else:
+            request_rate = self._request_rate if self._request_rate is not None else 'inf'
+            for output_length in self.output_lengths:
+                for input_length in self.input_lengths:
+                    # Run benchmarks for all client counts
+                    for client_count in self.client_counts:
+                        try:
+                            self.run_single_benchmark(request_rate, client_count, input_length, output_length)
+                        except subprocess.CalledProcessError as e:
+                            logger.error(f"Benchmark failed for c{client_count}_i{input_length}_o{output_length}: {str(e)}")
+                            continue
                 
         # Cleanup container after this configuration
         self._cleanup_container()
@@ -462,6 +513,8 @@ def main():
     parser.add_argument('--gpu-devices', help='Comma-separated GPU device IDs')
     parser.add_argument('--request-rate', type=int, default=None,
                        help='Request rate for the benchmark')
+    parser.add_argument('--custom-scope-file', type=str, default=None,
+                        help='Path to the custom scope file (if bench-scope is custom)')
     parser.add_argument('--dry-run', action='store_true', 
                        help='Show commands without executing them')
     
@@ -475,6 +528,7 @@ def main():
             bench_scope=args.bench_scope,
             custom_visible_devices=args.gpu_devices,
             request_rate=args.request_rate,
+            custom_scope_file=args.custom_scope_file,
             dry_run=args.dry_run,
         )
         benchmark.run_benchmark()
