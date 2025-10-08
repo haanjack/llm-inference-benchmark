@@ -149,12 +149,13 @@ class VLLMBenchmark:
     def _setup_container_name(self):
         """Setup container name based on environment and GPU configuration."""
         process_name = self.env_file
+        image_tag = self.vllm_image.split(':')[-1]
         slurm_job_id = os.environ.get("SLURM_JOB_ID", "")
         
         if slurm_job_id:
-            self.container_name = f"{process_name}-{slurm_job_id}-g{self.gpu_devices.replace(',', '_')}"
+            self.container_name = f"{slurm_job_id}-{self.model_name}-{image_tag}-{process_name}-g{self.gpu_devices.replace(',', '_')}"
         else:
-            self.container_name = f"{process_name}-g{self.gpu_devices.replace(',', '_')}"
+            self.container_name = f"{self.model_name}-{image_tag}-{process_name}-g{self.gpu_devices.replace(',', '_')}"
 
     def _setup_logging_dirs(self):
         """Setup logging directories for the benchmark."""
@@ -309,7 +310,9 @@ class VLLMBenchmark:
             try:
                 response = requests.get(f"http://localhost:{self.vllm_port}/v1/models")
                 if response.status_code == 200:
-                    return True
+                    # Add model loading verification
+                    model_info = response.json()
+                    return model_info.get("model_loaded", False)
             except requests.exceptions.RequestException:
                 time.sleep(5)
         return False
