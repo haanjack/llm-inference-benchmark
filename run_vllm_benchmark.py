@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 import re
 import requests
+import torch
 
 # Configure logging
 logging.basicConfig(
@@ -26,6 +27,7 @@ class VLLMBenchmark:
                  bench_scope: str = "test",
                  custom_visible_devices: Optional[str] = None,
                  num_iterations: int = 8,
+                 request_rate: int = None,
                  dry_run: bool = False):
         self.env_file = env_file
         self.env_vars = self._load_env_file()
@@ -39,6 +41,7 @@ class VLLMBenchmark:
         # Set benchmark parameters based on scope
         self._set_benchmark_scope(bench_scope)
         self._num_iterations = num_iterations
+        self._request_rate = request_rate
         
         # GPU configuration
         self.gpu_devices = custom_visible_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
@@ -144,17 +147,26 @@ class VLLMBenchmark:
 
     def _get_vllm_args(self) -> str:
         """Construct VLLM arguments based on environment variables."""
+        max_model_len = self.input_lengths[-1] + self.output_lengths[-1] + 256
         args = [
             "--kv-cache-dtype", f"{self.env_vars.get('KV_CACHE_DTYPE', '')}",
             "--gpu_memory_utilization", f"{self.env_vars.get('GPU_MEMORY_UTILIZATION', '0.9')}",
-            "--max-seq-len-to-capture", f"{self.env_vars.get('MAX_SEQ_LEN_TO_CAPTURE', '8192')}",
-            "--max-num-batched-token", f"{self.env_vars.get('MAX_NUM_BATCHED_TOKENS', '8192')}",
+            "--max-seq-len-to-capture", self.env_vars.get('MAX_SEQ_LEN_TO_CAPTURE', str(max_model_len)),
+            "--max-num-batched-token", f"{self.env_vars.get('MAX_NUM_BATCHED_TOKENS', '4096')}",
+            "--max-num-batched-seq", f"{self.env_vars.get('MAX_NUM_BATCHED_SEQ', '32')}",
+            "--max-num-seqs", f"{self.env_vars.get('MAX_NUM_SEQS', '128')}",
             "--swap-space", "64",
             "--no-enable-prefix-caching",
-            "--async-scheduling"
         ]
         if self.env_vars.get('QUANTIZATION', 'auto') != 'auto':
             args.extend(["--quantization", f"{self.env_vars.get('QUANTIZATION')}"])
+        if self._request_rate is not None:
+            args.extend(["--request-rate", f"{self.env_vars.get('REQUEST_RATE', str(self._request_rate))}"])
+        if torch.version.hip:
+            rocm_version_nums = [int(x) for x in re.findall(r'\d+', torch.version.hip)]
+            if len(rocm_version_nums) >= 2:
+                if (rocm_version_nums[0] >= 7):
+                    args.append("--async-scheduling")
 
         vllm_use_v1 = self.env_vars.get("VLLM_USE_V1", "0")
         if vllm_use_v1 == "0":
@@ -198,7 +210,7 @@ class VLLMBenchmark:
         subprocess.run(["docker", "rm", "-f", self.container_name], 
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def start_server(self, max_model_len: int):
+    def start_server(self):
         """Start the vLLM server in a Docker container."""
         if not self.dry_run:
             self._cleanup_container()
@@ -223,7 +235,6 @@ class VLLMBenchmark:
             self.model_path,
             "--no-enable-log-requests",
             "--trust-remote-code",
-            "--max-model-len", f"{max_model_len}",
             "--tensor-parallel-size", f"{self.num_gpus}",
             "--distributed-executor-backend", "mp",
             "--block-size", "64",
@@ -304,7 +315,7 @@ class VLLMBenchmark:
             # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
             return
 
-        num_prompts = client_count + self._num_iterations
+        num_prompts = client_count * self.env_vars.get('NUM_ITERATIONS', self._num_iterations)
         cmd = [
             "docker", "exec", self.container_name,
             "vllm", "bench", "serve",
@@ -393,8 +404,7 @@ class VLLMBenchmark:
             raise ValueError("No GPU is allocated")
 
         # Start server for this configuration
-        max_model_len = self.input_lengths[-1] + self.output_lengths[-1] + 256
-        self.start_server(max_model_len)
+        self.start_server()
         if not self.dry_run:
             if not self._wait_for_server():
                 raise RuntimeError("Server failed to start")
@@ -450,6 +460,8 @@ def main():
                        choices=['test', 'prefill', 'decode', 'middle'],
                        help='Benchmark scope')
     parser.add_argument('--gpu-devices', help='Comma-separated GPU device IDs')
+    parser.add_argument('--request-rate', type=int, default=None,
+                       help='Request rate for the benchmark')
     parser.add_argument('--dry-run', action='store_true', 
                        help='Show commands without executing them')
     
@@ -462,7 +474,8 @@ def main():
             vllm_image=args.vllm_image,
             bench_scope=args.bench_scope,
             custom_visible_devices=args.gpu_devices,
-            dry_run=args.dry_run
+            request_rate=args.request_rate,
+            dry_run=args.dry_run,
         )
         benchmark.run_benchmark()
     except Exception as e:
