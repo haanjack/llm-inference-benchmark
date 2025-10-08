@@ -111,7 +111,7 @@ class VLLMBenchmark:
             self.output_lengths = [1024, 2048, 4096]
         elif self._bench_scope == "custom":
             # load from test combinations in self._custom_scope_file
-            # combinations should be in the format of "request_rate client_count input_length output_length"
+            # combinations should be in the format of "request_rate client_count input_length output_length num_iterations"
             # one combination per line
             if not self._custom_scope_file:
                 raise ValueError("Custom scope file must be provided for custom scope")
@@ -347,12 +347,17 @@ class VLLMBenchmark:
             
         return metrics
 
-    def run_single_benchmark(self, request_rate: Union[int, str], client_count: int, input_length: int, output_length: int, num_iterations: Optional[int] = None):
+    def run_single_benchmark(self, 
+                             request_rate: Union[int, str], 
+                             client_count: int, 
+                             input_length: int, 
+                             output_length: int, 
+                             num_iterations: Optional[int] = None):
         """Run a single benchmark iteration."""
         log_file = self.log_dir / f"vllm_tp{self.env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_i{input_length}_o{output_length}_c{client_count}.log"
         
         # Check if this configuration has already been tested
-        if not self.dry_run and self._check_existing_result(client_count, input_length, output_length):
+        if not self.dry_run and self._check_existing_result(request_rate, client_count, input_length, output_length, num_iterations):
             # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
             return
 
@@ -382,22 +387,29 @@ class VLLMBenchmark:
         if self.dry_run:
             logger.info(f"Dry run - Benchmark command for c{client_count}_i{input_length}_o{output_length}:")
             logger.info(" ".join(cmd))
-        else:
-            with open(log_file, 'w') as f:
-                subprocess.run(cmd, stdout=f, stderr=f, check=True)
+            return
+        
+        with open(log_file, 'a') as f:
+            f.write(f"=== Benchmark: clients={client_count}, input_len={input_length}, output_len={output_length}, request_rate={request_rate}, num_iterations={num_iterations or self.env_vars.get('NUM_ITERATIONS', self._num_iterations)} ===\n")
+        with open(log_file, 'a') as f:
+            subprocess.run(cmd, stdout=f, stderr=f, check=True)
+        metrics = self._extract_metrics(log_file)
+        self._save_results(client_count, input_length, output_length, metrics)
+        self._print_result(client_count, input_length, output_length, metrics)
 
-        # Process and save results
-        if not self.dry_run:
-            metrics = self._extract_metrics(log_file)
-            self._save_results(client_count, input_length, output_length, metrics)
-            self._print_result(client_count, input_length, output_length, metrics)
-
-    def _check_existing_result(self, client_count: int, input_length: int, output_length: int) -> bool:
+    def _check_existing_result(self, 
+                               request_rate: int, 
+                               client_count: int, 
+                               input_length: int, 
+                               output_length: int, 
+                               num_iterations: Optional[int]) -> bool:
         """Check if results already exist for this configuration."""
         if not self.result_file.exists():
             return False
 
-        search_str = f"{self.env_file},{self.num_gpus},{client_count},{input_length},{output_length}"
+        if num_iterations is None:
+            num_iterations = self.env_vars.get('NUM_ITERATIONS', self._num_iterations)
+        search_str = f"{self.env_file},{self.num_gpus},{request_rate},{num_iterations},{client_count},{input_length},{output_length}"
         search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
 
         # print previous benchmark result if exists
@@ -412,10 +424,11 @@ class VLLMBenchmark:
                         logger.info(f"{''.join(s_line)}")
         return search_result
 
-    def _save_results(self, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
+    def _save_results(self, request_rate: int, num_iterations: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Save benchmark results to the result file."""
         result_line = (
             f"{self.env_file},{self.num_gpus},"
+            f"{request_rate},{num_iterations},"
             f"{client_count},{input_length},{output_length},"
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
@@ -428,10 +441,11 @@ class VLLMBenchmark:
         with open(self.result_file, 'a') as f:
             f.write(result_line)
 
-    def _print_result(self, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
+    def _print_result(self, request_rate: int, num_iterations: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
         result_line = (
             f"{self.env_file.ljust(30)}\t{self.num_gpus:>8d}\t"
+            f"{request_rate:>4d}\t{num_iterations:>4d}\t"
             f"{client_count:>8d}\t{input_length:>8d}\t{output_length:>8d}\t"
             f"{metrics['ttft_mean']:10.2f}\t{metrics['ttft_median']:10.2f}\t{metrics['ttft_p99']:10.2f}\t"
             f"{metrics['tpot_mean']:10.2f}\t{metrics['tpot_median']:10.2f}\t{metrics['tpot_p99']:10.2f}\t"
