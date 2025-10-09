@@ -3,8 +3,8 @@
 MODEL_NAME=""
 VLLM_IMAGE=""
 
-QUANTIZATION="fp8" # "", fp8
-KV_CACHE_DTYPE="auto" # auto, fp8
+QUANTIZATION="auto"
+KV_CACHE_DTYPE="auto"
 
 # VLLM control environment variables
 VLLM_USE_V1=0

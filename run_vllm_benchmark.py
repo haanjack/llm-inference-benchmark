@@ -152,12 +152,11 @@ class VLLMBenchmark:
         """Setup container name based on environment and GPU configuration."""
         process_name = self.env_file
         image_tag = self.vllm_image.split(':')[-1]
-        slurm_job_id = os.environ.get("SLURM_JOB_ID", "")
+        slurm_job_id = os.environ.get("SLURM_JOB_ID", None)
         
         if slurm_job_id:
-            self.container_name = f"{slurm_job_id}-{self.model_name}-{image_tag}-{process_name}-g{self.gpu_devices.replace(',', '_')}"
-        else:
-            self.container_name = f"{self.model_name}-{image_tag}-{process_name}-g{self.gpu_devices.replace(',', '_')}"
+            self.container_name = f"{slurm_job_id}-"
+        self.container_name += f"{os.path.basename(self.model_name)}-{image_tag}-{os.path.basename(process_name)}-g{self.gpu_devices.replace(',', '_')}"
 
     def _setup_logging_dirs(self):
         """Setup logging directories for the benchmark."""
@@ -194,7 +193,6 @@ class VLLMBenchmark:
             "--gpu_memory_utilization", f"{self.env_vars.get('GPU_MEMORY_UTILIZATION', '0.9')}",
             "--max-seq-len-to-capture", self.env_vars.get('MAX_SEQ_LEN_TO_CAPTURE', str(max_model_len)),
             "--max-num-batched-token", f"{self.env_vars.get('MAX_NUM_BATCHED_TOKENS', '4096')}",
-            "--max-num-batched-seq", f"{self.env_vars.get('MAX_NUM_BATCHED_SEQ', '32')}",
             "--max-num-seqs", f"{self.env_vars.get('MAX_NUM_SEQS', '128')}",
             "--swap-space", "64",
             "--no-enable-prefix-caching",
@@ -254,16 +252,17 @@ class VLLMBenchmark:
         if not self.dry_run:
             self._cleanup_container()
         
+        group_option="keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
         cmd = [
             "docker", "run", "-d",
             "--name", self.container_name,
             "-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface",
             "--device", "/dev/kfd", "--device", "/dev/dri", "--device", "/dev/mem",
-            "--group-add", "video",
-            "--ipc=host", "--network=host",
+            "--group-add", group_option,
+            "--network=host",
             "--cap-add=CAP_SYS_ADMIN",
             "--cap-add=SYS_PTRACE",
-            "--shm-size=2g",
+            "--shm-size=8g",
             "--security-opt", "seccomp=unconfined",
             "--env-file", str(Path.cwd() / "envs" / self.env_file),
             "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self.env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
