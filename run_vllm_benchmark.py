@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 import re
 import requests
-import torch
 
 # Configure logging
 logging.basicConfig(
@@ -210,10 +209,11 @@ class VLLMBenchmark:
         ]
         if self.env_vars.get('QUANTIZATION', 'auto') != 'auto':
             args.extend(["--quantization", f"{self.env_vars.get('QUANTIZATION')}"])
-        if torch.version.hip:
-            rocm_version_nums = [int(x) for x in re.findall(r'\d+', torch.version.hip)]
+        if self.env_vars.get('ROCM_VERSION', ''):
+            # ROCM_VERSION format should be like "5.4.3" or "5.5.0"
+            rocm_version_nums = [int(x) for x in re.findall(r'\d+', self.env_vars.get('ROCM_VERSION', ''))]
             if len(rocm_version_nums) >= 2:
-                if (rocm_version_nums[0] >= 7):
+                if (rocm_version_nums[0] >= 7 and rocm_version_nums[1] >= 0):
                     args.append("--async-scheduling")
 
         vllm_use_v1 = self.env_vars.get("VLLM_USE_V1", "0")
