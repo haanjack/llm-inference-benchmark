@@ -1,2 +1,3 @@
-# request_rate client_count input_length output_length num_iterations
+# request_rate client_count input_length output_length num_iteration
+3 5 2048 256 60
 5 10 2048 256 110
