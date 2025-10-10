@@ -163,6 +163,7 @@ class VLLMBenchmark:
         image_tag = self.vllm_image.split(':')[-1]
         slurm_job_id = os.environ.get("SLURM_JOB_ID", None)
         
+        self.container_name = ""
         if slurm_job_id:
             self.container_name = f"{slurm_job_id}-"
         self.container_name += f"{os.path.basename(self.model_name)}-{image_tag}-{os.path.basename(process_name)}-g{self.gpu_devices.replace(',', '_')}"
@@ -294,7 +295,6 @@ class VLLMBenchmark:
             "--trust-remote-code",
             "--tensor-parallel-size", f"{self.num_gpus}",
             "--distributed-executor-backend", "mp",
-            "--block-size", "64",
             "--port", f"{self.vllm_port}",
             "--host", "0.0.0.0"
         ]
@@ -329,10 +329,7 @@ class VLLMBenchmark:
         while time.time() - start_time < timeout:
             try:
                 response = requests.get(f"http://localhost:{self.vllm_port}/v1/models")
-                if response.status_code == 200:
-                    # Add model loading verification
-                    model_info = response.json()
-                    return model_info.get("model_loaded", False)
+                return response.status_code == 200
             except requests.exceptions.RequestException:
                 time.sleep(5)
         return False
