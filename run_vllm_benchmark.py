@@ -57,7 +57,9 @@ class VLLMBenchmark:
         
         # Result file headers
         self._headers = [
-            "env,TP Size,Client Count,Input Length,Output Length,",
+            "env,TP Size,",
+            "Request Rate,Num. Iter",
+            "Client Count,Input Length,Output Length,",
             "Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),",
             "Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),",
             "Mean ITL (ms),Median ITL (ms),P99 ITL (ms),",
