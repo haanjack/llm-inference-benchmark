@@ -63,7 +63,7 @@ class VLLMBenchmark:
         ]
         
         # determine docker or podman
-        self.container_runtime = "docker" if self._is_docker_available() else "podman"
+        self._container_runtime = "docker" if self._is_docker_available() else "podman"
 
         # Container name setup
         self._setup_container_name()
@@ -77,8 +77,7 @@ class VLLMBenchmark:
     def _is_docker_available(self) -> bool:
         """Check if Docker is installed on the system."""
         try:
-            assert (subprocess.run(["docker", "images"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0), "Docker is not available"
-            return True
+            return subprocess.run(["docker", "images"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
         except FileNotFoundError:
             return False
         
@@ -214,7 +213,7 @@ class VLLMBenchmark:
         # rocm version format should be like "6.4.0" or "7.0.1"
         # load rocm version from pytorch installed in container
         container_rocm_version = subprocess.run(
-            ["docker", "run", "--rm", self.vllm_image, "python3", "-c", 
+            [self._container_runtime, "run", "--rm", self.vllm_image, "python3", "-c", 
                 "import torch; print(torch.version.hip)"],
             capture_output=True, text=True
         ).stdout.strip()
@@ -265,7 +264,7 @@ class VLLMBenchmark:
     def _cleanup_container(self):
         """Remove the Docker container if it exists."""
         self._cleanup_log_processes()
-        subprocess.run(["docker", "rm", "-f", self.container_name], 
+        subprocess.run([self._container_runtime, "rm", "-f", self.container_name], 
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def start_server(self):
@@ -275,7 +274,7 @@ class VLLMBenchmark:
         
         group_option="keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
         cmd = [
-            "docker", "run", "-d",
+            self._container_runtime, "run", "-d",
             "--name", self.container_name,
             "-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface",
             "--device", "/dev/kfd", "--device", "/dev/dri", "--device", "/dev/mem",
@@ -313,12 +312,12 @@ class VLLMBenchmark:
         with open(self.server_log, 'a') as f:
             # Create two processes to capture both stdout and stderr
             stdout_process = subprocess.Popen(
-                ["docker", "logs", "-f", self.container_name],
+                [self._container_runtime, "logs", "-f", self.container_name],
                 stdout=f,
                 stderr=subprocess.PIPE
             )
             stderr_process = subprocess.Popen(
-                ["docker", "logs", "-f", self.container_name],
+                [self._container_runtime, "logs", "-f", self.container_name],
                 stdout=subprocess.PIPE,
                 stderr=f
             )
@@ -385,7 +384,7 @@ class VLLMBenchmark:
         if num_iterations is not None:
             num_prompts = client_count * num_iterations
         cmd = [
-            "docker", "exec", self.container_name,
+            self._container_runtime, "exec", self.container_name,
             "vllm", "bench", "serve",
             "--model", self.model_path,
             "--backend", "vllm",
@@ -491,7 +490,7 @@ class VLLMBenchmark:
         
         # Warmup
         warmup_cmd = [
-            "docker", "exec", self.container_name,
+            self._container_runtime, "exec", self.container_name,
             "vllm", "bench", "serve",
             "--model", self.model_path,
             "--backend", "vllm",
