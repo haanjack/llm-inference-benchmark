@@ -200,7 +200,6 @@ class VLLMBenchmark:
         args = [
             "--kv-cache-dtype", f"{self.env_vars.get('KV_CACHE_DTYPE', '')}",
             "--gpu_memory_utilization", f"{self.env_vars.get('GPU_MEMORY_UTILIZATION', '0.9')}",
-            "--max-seq-len-to-capture", self.env_vars.get('MAX_SEQ_LEN_TO_CAPTURE', str(max_model_len)),
             "--max-num-batched-token", f"{self.env_vars.get('MAX_NUM_BATCHED_TOKENS', '4096')}",
             "--max-num-seqs", f"{self.env_vars.get('MAX_NUM_SEQS', '128')}",
             "--swap-space", "64",
