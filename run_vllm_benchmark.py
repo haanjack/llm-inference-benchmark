@@ -329,7 +329,8 @@ class VLLMBenchmark:
         while time.time() - start_time < timeout:
             try:
                 response = requests.get(f"http://localhost:{self.vllm_port}/v1/models")
-                return response.status_code == 200
+                print(response)
+                return True
             except requests.exceptions.RequestException:
                 time.sleep(5)
         return False
@@ -409,8 +410,10 @@ class VLLMBenchmark:
         with open(log_file, 'a') as f:
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
         metrics = self._extract_metrics(log_file)
-        self._save_results(client_count, input_length, output_length, metrics)
-        self._print_result(client_count, input_length, output_length, metrics)
+        self._save_results(
+            request_rate, num_iterations, client_count, input_length, output_length, metrics)
+        self._print_result(
+            request_rate, num_iterations, client_count, input_length, output_length, metrics)
 
     def _check_existing_result(self, 
                                request_rate: int, 
@@ -438,8 +441,8 @@ class VLLMBenchmark:
                         s_line += [h.rjust(10) for h in line.split(',')[5:]]
                         logger.info(f"{''.join(s_line)}")
         return search_result
-
     def _save_results(self, request_rate: int, num_iterations: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
+
         """Save benchmark results to the result file."""
         result_line = (
             f"{self.env_file},{self.num_gpus},"
