@@ -419,7 +419,7 @@ class VLLMBenchmark:
             request_rate, num_iteration, client_count, input_length, output_length, metrics)
 
     def _check_existing_result(self, 
-                               request_rate: int, 
+                               request_rate: Union[int, str], 
                                client_count: int, 
                                input_length: int, 
                                output_length: int, 
@@ -430,6 +430,8 @@ class VLLMBenchmark:
 
         if num_iteration is None:
             num_iteration = self.env_vars.get('NUM_ITERATION', self._num_iteration)
+        if isinstance(request_rate, str):
+            request_rate = 0
         search_str = f"{self.env_file},{self.num_gpus},{request_rate},{num_iteration},{client_count},{input_length},{output_length}"
         search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
 
