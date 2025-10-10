@@ -526,7 +526,14 @@ class VLLMBenchmark:
         if self._bench_scope == "custom":
             for r, c, i, o, n in zip(self.request_rates, self.client_counts, self.input_lengths, self.output_lengths, self.num_iterations):
                 try:
+                    start_time = time.time()
                     self.run_single_benchmark(r, c, i, o, n)
+                    # show the running time in hh:mm:ss format
+                    elapsed_time_seconds = time.time() - start_time
+                    hours = int(elapsed_time_seconds // 3600)
+                    minutes = int((elapsed_time_seconds % 3600) // 60)
+                    seconds = int(elapsed_time_seconds % 60)
+                    print(f"test time: {hours:02}:{minutes:02}:{seconds:02}")
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Benchmark failed for c{c}_i{i}_o{o}_n{n}: {str(e)}")
                     continue
