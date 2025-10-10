@@ -62,6 +62,9 @@ class VLLMBenchmark:
             "Request Throughput (req/s),Output token throughput (tok/s),",
             "Total Token throughput (tok/s)"
         ]
+        
+        # determine docker or podman
+        self.container_runtime = "docker" if self._is_docker_available() else "podman"
 
         # Container name setup
         self._setup_container_name()
@@ -72,6 +75,14 @@ class VLLMBenchmark:
         # VLLM port setup
         self.vllm_port = 23400 + int(self.first_gpu_id) if self.first_gpu_id else 23400
 
+    def _is_docker_available(self) -> bool:
+        """Check if Docker is installed on the system."""
+        try:
+            assert (subprocess.run(["docker", "images"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0), "Docker is not available"
+            return True
+        except FileNotFoundError:
+            return False
+        
     def _load_env_file(self) -> Dict[str, str]:
         """Load environment variables from the specified env file."""
         env_file_path = Path.cwd() / "envs" / self.env_file
