@@ -461,6 +461,8 @@ class VLLMBenchmark:
 
     def _print_result(self, request_rate: int, num_iterations: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
+        if isinstance(request_rate, str):
+            request_rate = 0
         result_line = (
             f"{self.env_file.ljust(30)}\t{self.num_gpus:>8d}\t"
             f"{request_rate:>4d}\t{num_iterations:>4d}\t"
