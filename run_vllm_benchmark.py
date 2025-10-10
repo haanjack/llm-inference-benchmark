@@ -497,27 +497,28 @@ class VLLMBenchmark:
             logger.info("Server is up and running")
         
         # Warmup
-        warmup_cmd = [
-            self._container_runtime, "exec", self.container_name,
-            "vllm", "bench", "serve",
-            "--model", self.model_path,
-            "--backend", "vllm",
-            "--host", "localhost",
-            "--port", f"{self.vllm_port}",
-            "--dataset-name", "random",
-            "--ignore-eos",
-            "--trust-remote-code",
-            "--num-prompts", "16",
-            "--max-concurrency", "4",
-            "--random-input-len", "256",
-            "--random-output-len", "256",
-            "--tokenizer", self.model_path
-        ]
-        if not self.dry_run:
-            subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL)
-            logger.info("Warmup complete")
+        if not self.no_warmup:
+            warmup_cmd = [
+                self._container_runtime, "exec", self.container_name,
+                "vllm", "bench", "serve",
+                "--model", self.model_path,
+                "--backend", "vllm",
+                "--host", "localhost",
+                "--port", f"{self.vllm_port}",
+                "--dataset-name", "random",
+                "--ignore-eos",
+                "--trust-remote-code",
+                "--num-prompts", "16",
+                "--max-concurrency", "4",
+                "--random-input-len", "256",
+                "--random-output-len", "256",
+                "--tokenizer", self.model_path
+            ]
+            if not self.dry_run:
+                subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL)
+                logger.info("Warmup complete")
 
-            self._print_header()
+        self._print_header()
 
         # Run benchmarks for all configurations
         if self._bench_scope == "custom":
@@ -565,6 +566,8 @@ def main():
                        help='Request rate for the benchmark')
     parser.add_argument('--custom-scope-file', type=str, default=None,
                         help='Path to the custom scope file (if bench-scope is custom)')
+    parser.add_argument('--no-warmup', action='store_true', 
+                        help='no warmup at benchmark start')
     parser.add_argument('--dry-run', action='store_true', 
                        help='Show commands without executing them')
     
