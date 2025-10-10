@@ -27,12 +27,14 @@ class VLLMBenchmark:
                  custom_visible_devices: Optional[str] = None,
                  num_iteration: int = None,
                  request_rate: int = None,
+                 no_warmup: bool = False,
                  custom_scope_file: Optional[str] = None,
                  dry_run: bool = False):
         self.env_file = env_file
         self.env_vars = self._load_env_file()
         self.dry_run = dry_run
         self._bench_scope = bench_scope
+        self.no_warmup = no_warmup
         
         # Initialize configuration
         self.model_name = model_name or self.env_vars.get("MODEL_NAME", "Meta-Llama-3-8B-Instruct-FP8")
@@ -583,6 +585,7 @@ def main():
             request_rate=args.request_rate,
             custom_scope_file=args.custom_scope_file,
             num_iteration=args.num_iteration,
+            no_warmup=args.no_warmup,
             dry_run=args.dry_run,
         )
         benchmark.run_benchmark()
