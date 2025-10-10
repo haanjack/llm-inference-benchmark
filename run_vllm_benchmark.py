@@ -40,6 +40,7 @@ class VLLMBenchmark:
         self.vllm_image = vllm_image or self.env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
         
         # Set benchmark parameters based on scope
+        self._custom_scope_file = custom_scope_file
         self._set_benchmark_scope()
         self._num_iteration = self.env_vars.get('NUM_ITERATION', 1)
         if num_iteration is not None:
@@ -47,7 +48,6 @@ class VLLMBenchmark:
         self._request_rate = self.env_vars.get('REQUEST_RATE', 1)
         if request_rate is not None:
             self._request_rate = request_rate
-        self._custom_scope_file = custom_scope_file
         
         # GPU configuration
         self.gpu_devices = custom_visible_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
@@ -556,7 +556,7 @@ def main():
     parser.add_argument('--model-name', help='Model name')
     parser.add_argument('--vllm-image', help='vLLM Docker image')
     parser.add_argument('--bench-scope', default='test', 
-                       choices=['test', 'prefill', 'decode', 'middle'],
+                       choices=['test', 'custom', 'prefill', 'decode', 'middle'],
                        help='Benchmark scope')
     parser.add_argument('--gpu-devices', help='Comma-separated GPU device IDs')
     parser.add_argument('--num-iteration', type=int, default=None,

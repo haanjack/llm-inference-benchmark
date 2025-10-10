@@ -25,9 +25,11 @@ if [[ $tp_size == "0" ]]; then
     exit 1
 fi
 
-if [[ "${mode}" != "all" ]]; then
+if [[ "${mode}" == "test" ]]; then
     # TP_SIZE=$tp_size bash run_vllm_benchmark.sh ${env_file} ${model_dir} ${docker_image} ${mode} ${gpu_ids}
     python3 run_vllm_benchmark.py --env-file ${env_file} --model-name ${model_dir} --vllm-image ${docker_image} --bench-scope ${mode} --gpu-devices ${gpu_ids}
+elif [[ "${mode}" == "custom" ]]; then
+    python3 run_vllm_benchmark.py --env-file ${env_file} --model-name ${model_dir} --vllm-image ${docker_image} --bench-scope ${mode} --gpu-devices ${gpu_ids} --custom-scope-file=configs/customs/custom_combination.txt
 else
     # TP_SIZE=$tp_size bash run_vllm_benchmark.sh ${env_file} ${model_dir} ${docker_image} prefill ${gpu_ids}
     # TP_SIZE=$tp_size bash run_vllm_benchmark.sh ${env_file} ${model_dir} ${docker_image} decode ${gpu_ids}
