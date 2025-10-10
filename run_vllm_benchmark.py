@@ -209,23 +209,22 @@ class VLLMBenchmark:
         ]
         if self.env_vars.get('QUANTIZATION', 'auto') != 'auto':
             args.extend(["--quantization", f"{self.env_vars.get('QUANTIZATION')}"])
-        if self.env_vars.get('ROCM_VERSION', ''):
-            # ROCM_VERSION format should be like "6.4.0" or "7.0.1"
-            # load rocm version from pytorch installed in container
-            container_rocm_version = subprocess.run(
-                ["docker", "run", "--rm", self.vllm_image, "python3", "-c", 
-                 "import torch; print(torch.version.hip)"],
-                capture_output=True, text=True
-            ).stdout.strip()
-            if container_rocm_version:
-                self.env_vars['ROCM_VERSION'] = container_rocm_version
-            else:
-                logger.warning("Failed to get ROCM version from container")
+        
+        # ROCM version handling
+        # rocm version format should be like "6.4.0" or "7.0.1"
+        # load rocm version from pytorch installed in container
+        container_rocm_version = subprocess.run(
+            ["docker", "run", "--rm", self.vllm_image, "python3", "-c", 
+                "import torch; print(torch.version.hip)"],
+            capture_output=True, text=True
+        ).stdout.strip()
+        if container_rocm_version is None or container_rocm_version == "":
+            logger.warning("Failed to get ROCM version from container")
 
-            rocm_version_nums = [int(x) for x in re.findall(r'\d+', container_rocm_version)]
-            if len(rocm_version_nums) >= 2:
-                if (rocm_version_nums[0] >= 7 and rocm_version_nums[1] >= 0):
-                    args.append("--async-scheduling")
+        rocm_version_nums = [int(x) for x in re.findall(r'\d+', container_rocm_version)]
+        if len(rocm_version_nums) >= 2:
+            if (rocm_version_nums[0] >= 7):
+                args.append("--async-scheduling")
 
         vllm_use_v1 = self.env_vars.get("VLLM_USE_V1", "0")
         if vllm_use_v1 == "0":
