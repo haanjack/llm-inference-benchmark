@@ -557,7 +557,7 @@ def main():
                        choices=['test', 'prefill', 'decode', 'middle'],
                        help='Benchmark scope')
     parser.add_argument('--gpu-devices', help='Comma-separated GPU device IDs')
-    parser.add_argument('--num-iteratoin', type=int, default=None,
+    parser.add_argument('--num-iteration', type=int, default=None,
                         help='Number of batch iterations')
     parser.add_argument('--request-rate', type=int, default=None,
                        help='Request rate for the benchmark')
