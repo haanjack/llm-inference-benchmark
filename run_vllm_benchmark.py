@@ -60,8 +60,7 @@ class VLLMBenchmark:
         # Result file headers
         self._headers = [
             "env,TP Size,",
-            "Request Rate,Num. Iter",
-            "Client Count,Input Length,Output Length,",
+            "Request Rate,Num. Iter,Client Count,Input Length,Output Length,Test Time,",
             "Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),",
             "Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),",
             "Mean ITL (ms),Median ITL (ms),P99 ITL (ms),",
@@ -196,11 +195,12 @@ class VLLMBenchmark:
 
     def _print_header(self):
         """Print the header line to console."""
+        metric_start_column_idx = 8
         # print header line to console
         headers_split = ''.join(self._headers).split(',')
         headers_line = [headers_split[0].ljust(30)]
-        headers_line += [h.rjust(8) for h in headers_split[1:5]]
-        headers_line += [h.rjust(10) for h in headers_split[5:]]
+        headers_line += [h.rjust(8) for h in headers_split[1:metric_start_column_idx]]
+        headers_line += [h.rjust(10) for h in headers_split[metric_start_column_idx:]]
         logger.info('\t'.join(headers_line))
 
     def _get_vllm_args(self) -> str:
@@ -414,9 +414,17 @@ class VLLMBenchmark:
         
         with open(log_file, 'a') as f:
             f.write(f"=== Benchmark: clients={client_count}, input_len={input_length}, output_len={output_length}, request_rate={request_rate}, num_iteration={num_iteration or self.env_vars.get('NUM_ITERATION', self._num_iteration)} ===\n")
+        start_time = time.time()
         with open(log_file, 'a') as f:
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
+        elapsed_time_seconds = time.time() - start_time
+        hours = int(elapsed_time_seconds // 3600)
+        minutes = int((elapsed_time_seconds % 3600) // 60)
+        seconds = int(elapsed_time_seconds % 60)
+        test_time=f"{hours:02}:{minutes:02}:{seconds:02}"
         metrics = self._extract_metrics(log_file)
+        metrics['test_time'] = test_time
+
         self._save_results(
             request_rate, num_iteration, client_count, input_length, output_length, metrics)
         self._print_result(
@@ -455,8 +463,7 @@ class VLLMBenchmark:
         """Save benchmark results to the result file."""
         result_line = (
             f"{self.env_file},{self.num_gpus},"
-            f"{request_rate},{num_iteration},"
-            f"{client_count},{input_length},{output_length},"
+            f"{request_rate},{num_iteration},{client_count},{input_length},{output_length},{metrics['test_time']},"
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
             f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
@@ -474,8 +481,7 @@ class VLLMBenchmark:
             request_rate = 0
         result_line = (
             f"{self.env_file.ljust(30)}\t{self.num_gpus:>8d}\t"
-            f"{request_rate:>4d}\t{num_iteration:>4d}\t"
-            f"{client_count:>8d}\t{input_length:>8d}\t{output_length:>8d}\t"
+            f"{request_rate:>4d}\t{num_iteration:>4d}\t{client_count:>8d}\t{input_length:>8d}\t{output_length:>8d}\t{metrics['test_time']}\t"
             f"{metrics['ttft_mean']:10.2f}\t{metrics['ttft_median']:10.2f}\t{metrics['ttft_p99']:10.2f}\t"
             f"{metrics['tpot_mean']:10.2f}\t{metrics['tpot_median']:10.2f}\t{metrics['tpot_p99']:10.2f}\t"
             f"{metrics['itl_mean']:10.2f}\t{metrics['itl_median']:10.2f}\t{metrics['itl_p99']:10.2f}\t"
@@ -526,14 +532,7 @@ class VLLMBenchmark:
         if self._bench_scope == "custom":
             for r, c, i, o, n in zip(self.request_rates, self.client_counts, self.input_lengths, self.output_lengths, self.num_iterations):
                 try:
-                    start_time = time.time()
                     self.run_single_benchmark(r, c, i, o, n)
-                    # show the running time in hh:mm:ss format
-                    elapsed_time_seconds = time.time() - start_time
-                    hours = int(elapsed_time_seconds // 3600)
-                    minutes = int((elapsed_time_seconds % 3600) // 60)
-                    seconds = int(elapsed_time_seconds % 60)
-                    print(f"test time: {hours:02}:{minutes:02}:{seconds:02}")
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Benchmark failed for c{c}_i{i}_o{o}_n{n}: {str(e)}")
                     continue
