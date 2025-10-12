@@ -8,14 +8,14 @@ gpu_ids=${5:-"0"}
 
 tp_size=$TP_SIZE
 
-if [[ ! -f "envs/${env_file}" ]]; then
+if [[ ! -f "${env_file}" ]]; then
     echo "Could not find env file. Please check env file name"
     ls "envs"
     exit 1
 fi
 
 echo "model_dir: ${model_dir}"
-if [[ ! -d "${HOME}/models/$model_dir" ]]; then
+if [[ ! -d "${HOME}/$model_dir" ]]; then
     echo "Could not find model dir"
     exit 1
 fi

@@ -35,10 +35,10 @@ class VLLMBenchmark:
         self.dry_run = dry_run
         self._bench_scope = bench_scope
         self.no_warmup = no_warmup
-        
+ 
         # Initialize configuration
         self.model_name = model_name or self.env_vars.get("MODEL_NAME", "Meta-Llama-3-8B-Instruct-FP8")
-        self.model_path = f"/workspace/models/{self.model_name}"
+        self.model_path = f"/workspace/{self.model_name}"
         self.vllm_image = vllm_image or self.env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
         
         # Set benchmark parameters based on scope
@@ -81,6 +81,14 @@ class VLLMBenchmark:
         # VLLM port setup
         self.vllm_port = 23400 + int(self.first_gpu_id) if self.first_gpu_id else 23400
 
+        self._print_benchmark_info()
+
+    def _print_benchmark_info(self):
+        logger.info("Start vLLM benchmark")
+        logger.info(f"Model Name: {self.model_name}")
+        logger.info(f"vLLM docker image: {self.vllm_image}")
+        logger.info(f"Benchmark scenario: {self.bench_scope}")
+
     def _is_docker_available(self) -> bool:
         """Check if Docker is installed on the system."""
         try:
@@ -90,7 +98,7 @@ class VLLMBenchmark:
         
     def _load_env_file(self) -> Dict[str, str]:
         """Load environment variables from the specified env file."""
-        env_file_path = Path.cwd() / "envs" / self.env_file
+        env_file_path = Path.cwd() / self.env_file
         env_vars = {}
         
         if not env_file_path.exists():
@@ -313,6 +321,7 @@ class VLLMBenchmark:
             logger.info("Dry run - Docker server command:")
             logger.info(" ".join(cmd))
         else:
+            logger.info("Started to initialize vllm server ...")
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         
         # Start log collection
@@ -331,7 +340,7 @@ class VLLMBenchmark:
             # Store process IDs for later cleanup if needed
             self.log_processes = [stdout_process, stderr_process]
 
-    def _wait_for_server(self, timeout: int = 600) -> bool:
+    def _wait_for_server(self, timeout: int = 1200) -> bool:
         """Wait for the server to become available."""
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -372,7 +381,7 @@ class VLLMBenchmark:
         return metrics
 
     def run_single_benchmark(self, 
-                             request_rate: Union[int, str], 
+                             request_rate: int, 
                              client_count: int, 
                              input_length: int, 
                              output_length: int, 
@@ -387,6 +396,8 @@ class VLLMBenchmark:
             return
 
         num_prompts = client_count * num_iteration
+        if request_rate == 0:
+            request_rate = 'inf'
         cmd = [
             self._container_runtime, "exec", self.container_name,
             "vllm", "bench", "serve",
@@ -431,7 +442,7 @@ class VLLMBenchmark:
             request_rate, num_iteration, client_count, input_length, output_length, metrics)
 
     def _check_existing_result(self, 
-                               request_rate: Union[int, str], 
+                               request_rate: int, 
                                client_count: int, 
                                input_length: int, 
                                output_length: int, 
@@ -442,8 +453,6 @@ class VLLMBenchmark:
 
         if num_iteration is None:
             num_iteration = self.env_vars.get('NUM_ITERATION', self._num_iteration)
-        if isinstance(request_rate, str):
-            request_rate = 0
         search_str = f"{self.env_file},{self.num_gpus},{request_rate},{num_iteration},{client_count},{input_length},{output_length}"
         search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
 
@@ -477,8 +486,8 @@ class VLLMBenchmark:
 
     def _print_result(self, request_rate: int, num_iteration: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
-        if isinstance(request_rate, str):
-            request_rate = 0
+        if request_rate == 0:
+            request_rate = 'inf'
         result_line = (
             f"{self.env_file.ljust(30)}\t{self.num_gpus:>8d}\t"
             f"{request_rate:>4d}\t{num_iteration:>4d}\t{client_count:>8d}\t{input_length:>8d}\t{output_length:>8d}\t{metrics['test_time']}\t"
@@ -523,6 +532,7 @@ class VLLMBenchmark:
                 "--tokenizer", self.model_path
             ]
             if not self.dry_run:
+                logger.info("Started vLLM server warmup. Will have small tests ahead of real benchmarks")
                 subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL)
                 logger.info("Warmup complete")
 
