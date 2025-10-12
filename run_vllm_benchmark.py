@@ -87,7 +87,9 @@ class VLLMBenchmark:
         logger.info("Start vLLM benchmark")
         logger.info(f"Model Name: {self.model_name}")
         logger.info(f"vLLM docker image: {self.vllm_image}")
-        logger.info(f"Benchmark scenario: {self.bench_scope}")
+        logger.info(f"Benchmark scenario: {self._bench_scope}")
+        if self._bench_scope == "custom":
+            logger.info(f"{self._custom_scope_file}")
 
     def _is_docker_available(self) -> bool:
         """Check if Docker is installed on the system."""
@@ -300,7 +302,7 @@ class VLLMBenchmark:
             "--cap-add=SYS_PTRACE",
             "--shm-size=8g",
             "--security-opt", "seccomp=unconfined",
-            "--env-file", str(Path.cwd() / "envs" / self.env_file),
+            "--env-file", str(Path.cwd() / self.env_file),
             "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self.env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
             "-e", f"CUDA_VISIBLE_DEVICES={self.gpu_devices}",
             "-v", f"{os.environ.get('HOME')}:/workspace/",
