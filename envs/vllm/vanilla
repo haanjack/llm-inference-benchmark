@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MODEL_NAME=""
+MODEL_PATH=""
 VLLM_IMAGE=""
 
 QUANTIZATION=auto

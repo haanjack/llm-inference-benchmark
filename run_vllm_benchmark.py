@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class VLLMBenchmark:
     def __init__(self, 
                  env_file: str = "baseline", 
-                 model_name: Optional[str] = None, 
+                 model_path: Optional[str] = None, 
                  vllm_image: Optional[str] = None, 
                  bench_scope: str = "test",
                  custom_visible_devices: Optional[str] = None,
@@ -37,8 +37,8 @@ class VLLMBenchmark:
         self.no_warmup = no_warmup
  
         # Initialize configuration
-        self.model_name = model_name or self.env_vars.get("MODEL_NAME", "Meta-Llama-3-8B-Instruct-FP8")
-        self.model_path = f"/workspace/{self.model_name}"
+        self.model_path = self.env_vars.get('MODEL_PATH', self.model_name) if model_path is None else model_path
+        self.model_name = os.path.basename(self.model_path)
         self.vllm_image = vllm_image or self.env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
         
         # Set benchmark parameters based on scope
@@ -574,7 +574,7 @@ class VLLMBenchmark:
 def main():
     parser = argparse.ArgumentParser(description='Run vLLM benchmarks')
     parser.add_argument('--env-file', default='baseline', help='Environment file name')
-    parser.add_argument('--model-name', help='Model name')
+    parser.add_argument('--model-path', help='Model checkpoint path')
     parser.add_argument('--vllm-image', help='vLLM Docker image')
     parser.add_argument('--bench-scope', default='test', 
                        choices=['test', 'custom', 'prefill', 'decode', 'middle'],
@@ -596,7 +596,7 @@ def main():
     try:
         benchmark = VLLMBenchmark(
             env_file=args.env_file,
-            model_name=args.model_name,
+            model_path=args.model_path,
             vllm_image=args.vllm_image,
             bench_scope=args.bench_scope,
             custom_visible_devices=args.gpu_devices,
