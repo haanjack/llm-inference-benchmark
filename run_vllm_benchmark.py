@@ -38,7 +38,9 @@ class VLLMBenchmark:
  
         # Initialize configuration
         self.model_path = self.env_vars.get('MODEL_PATH', self.model_name) if model_path is None else model_path
-        self.model_name = os.path.basename(self.model_path)
+        self.model_path = (Path().cwd() / self.model_path) if not Path(self.model_path).is_absolute() else Path(self.model_path)
+        self.model_name = self.model_path.name
+        self._container_model_path = f"/models/{self.model_name}"
         self.vllm_image = vllm_image or self.env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
         
         # Set benchmark parameters based on scope
@@ -306,9 +308,10 @@ class VLLMBenchmark:
             "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self.env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
             "-e", f"CUDA_VISIBLE_DEVICES={self.gpu_devices}",
             "-v", f"{os.environ.get('HOME')}:/workspace/",
+            "-v", f"{self.model_path}:{self._container_model_path}:ro",
             self.vllm_image,
             "vllm", "serve",
-            self.model_path,
+            self._container_model_path,
             "--no-enable-log-requests",
             "--trust-remote-code",
             "--tensor-parallel-size", f"{self.num_gpus}",
@@ -403,7 +406,7 @@ class VLLMBenchmark:
         cmd = [
             self._container_runtime, "exec", self.container_name,
             "vllm", "bench", "serve",
-            "--model", self.model_path,
+            "--model", self._container_model_path,
             "--backend", "vllm",
             "--host", "localhost",
             f"--port={self.vllm_port}",
@@ -415,7 +418,7 @@ class VLLMBenchmark:
             f"--max-concurrency={client_count}",
             f"--random-input-len={input_length}",
             f"--random-output-len={output_length}",
-            "--tokenizer", self.model_path,
+            "--tokenizer", self._container_model_path,
             "--disable-tqdm",
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ]
@@ -520,7 +523,7 @@ class VLLMBenchmark:
             warmup_cmd = [
                 self._container_runtime, "exec", self.container_name,
                 "vllm", "bench", "serve",
-                "--model", self.model_path,
+                "--model", self._container_model_path,
                 "--backend", "vllm",
                 "--host", "localhost",
                 "--port", f"{self.vllm_port}",
@@ -531,7 +534,7 @@ class VLLMBenchmark:
                 "--max-concurrency", "4",
                 "--random-input-len", "256",
                 "--random-output-len", "256",
-                "--tokenizer", self.model_path
+                "--tokenizer", self._container_model_path
             ]
             if not self.dry_run:
                 logger.info("Started vLLM server warmup. Will have small tests ahead of real benchmarks")
