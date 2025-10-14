@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import time
+import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 import re
@@ -52,6 +53,7 @@ class VLLMBenchmark:
         self._request_rate = self.env_vars.get('REQUEST_RATE', 1)
         if request_rate is not None:
             self._request_rate = request_rate
+        self.max_num_seqs = int(self.env_vars.get('MAX_NUM_SEQS', '256'))
         
         # GPU configuration
         self.gpu_devices = custom_visible_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
@@ -62,7 +64,7 @@ class VLLMBenchmark:
         # Result file headers
         self._headers = [
             "env,TP Size,",
-            "Request Rate,Num. Iter,Client Count,Input Length,Output Length,Test Time,",
+            "Request Rate,Num. Iter,Client Count,MaxNumSeqs,Input Length,Output Length,Test Time,",
             "Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),",
             "Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),",
             "Mean ITL (ms),Median ITL (ms),P99 ITL (ms),",
@@ -83,6 +85,7 @@ class VLLMBenchmark:
         # VLLM port setup
         self.vllm_port = 23400 + int(self.first_gpu_id) if self.first_gpu_id else 23400
 
+        self.metric_start_column_idx = 9
         self._print_benchmark_info()
 
     def _print_benchmark_info(self):
@@ -123,8 +126,9 @@ class VLLMBenchmark:
         """Set benchmark parameters based on scope."""
         if self._bench_scope == "test":
             self.client_counts = [4]
-            self.input_lengths = [2048]
-            self.output_lengths = [2048]
+            self._num_iteration = 4
+            self.input_lengths = [1024]
+            self.output_lengths = [256]
         elif self._bench_scope == "prefill":
             self.client_counts = [1, 2, 4, 8, 16, 32, 64, 128]
             self.input_lengths = [256, 512, 1024, 2048, 4096, 8192]
@@ -185,7 +189,7 @@ class VLLMBenchmark:
         self.container_name = ""
         if slurm_job_id:
             self.container_name = f"{slurm_job_id}-"
-        self.container_name += f"{os.path.basename(self.model_name)}-{image_tag}-{os.path.basename(process_name)}-g{self.gpu_devices.replace(',', '_')}"
+        self.container_name += f"{os.path.basename(self.model_name)}-{image_tag}-{os.path.basename(self.env_file)}-g{self.gpu_devices.replace(',', '_')}"
 
     def _setup_logging_dirs(self):
         """Setup logging directories for the benchmark."""
@@ -193,9 +197,12 @@ class VLLMBenchmark:
         self.log_dir = Path("logs") / self.model_name / image_tag
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
-        self.server_log = self.log_dir / f"server_log_t{self.num_gpus}.txt"
+        self.server_log = self.log_dir / "server_logs" / f"{os.path.basename(self.model_name)}-{image_tag}-{os.path.basename(self.env_file)}-t{self.num_gpus}.txt"
         self.result_file = self.log_dir / "result_list.csv"
         
+        self.server_log.parent.mkdir(parents=True, exist_ok=True)
+        self.result_file.parent.mkdir(parents=True, exist_ok=True)
+
         # Initialize result file if it doesn't exist
         if not self.result_file.exists():
             self._init_result_file()
@@ -207,12 +214,11 @@ class VLLMBenchmark:
 
     def _print_header(self):
         """Print the header line to console."""
-        metric_start_column_idx = 8
         # print header line to console
         headers_split = ''.join(self._headers).split(',')
         headers_line = [headers_split[0].ljust(30)]
-        headers_line += [h.rjust(8) for h in headers_split[1:metric_start_column_idx]]
-        headers_line += [h.rjust(10) for h in headers_split[metric_start_column_idx:]]
+        headers_line += [h.rjust(8) for h in headers_split[1:self.metric_start_column_idx]]
+        headers_line += [h.rjust(10) for h in headers_split[self.metric_start_column_idx:]]
         logger.info('\t'.join(headers_line))
 
     def _get_vllm_args(self) -> str:
@@ -222,8 +228,8 @@ class VLLMBenchmark:
             "--kv-cache-dtype", f"{self.env_vars.get('KV_CACHE_DTYPE', '')}",
             "--gpu_memory_utilization", f"{self.env_vars.get('GPU_MEMORY_UTILIZATION', '0.9')}",
             "--max-num-batched-token", f"{self.env_vars.get('MAX_NUM_BATCHED_TOKENS', '4096')}",
-            "--max-num-seqs", f"{self.env_vars.get('MAX_NUM_SEQS', '128')}",
-            "--swap-space", "64",
+            "--max-num-seqs", f"{self.max_num_seqs}",
+            "--swap-space", "16",
             "--no-enable-prefix-caching",
         ]
         if self.env_vars.get('QUANTIZATION', 'auto') != 'auto':
@@ -351,7 +357,6 @@ class VLLMBenchmark:
         while time.time() - start_time < timeout:
             try:
                 response = requests.get(f"http://localhost:{self.vllm_port}/v1/models")
-                print(response)
                 return True
             except requests.exceptions.RequestException:
                 time.sleep(5)
@@ -392,13 +397,8 @@ class VLLMBenchmark:
                              output_length: int, 
                              num_iteration: Optional[int] = None):
         """Run a single benchmark iteration."""
-        log_file = self.log_dir / f"vllm_tp{self.env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_i{input_length}_o{output_length}_c{client_count}.log"
         
-        # Check if this configuration has already been tested
-        num_iteration = self._num_iteration if num_iteration is None else num_iteration
-        if not self.dry_run and self._check_existing_result(request_rate, client_count, input_length, output_length, num_iteration):
-            # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
-            return
+        num_iteration = int(self._num_iteration if num_iteration is None else num_iteration)
 
         num_prompts = client_count * num_iteration
         if request_rate == 0:
@@ -423,24 +423,33 @@ class VLLMBenchmark:
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ]
 
+        # Check if this configuration has already been tested
+        if self._check_existing_result(request_rate, client_count, input_length, output_length, num_iteration):
+            # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
+            return
+
         if self.dry_run:
-            logger.info(f"Dry run - Benchmark command for c{client_count}_i{input_length}_o{output_length}:")
+            logger.info(f"Dry run - Benchmark command for r{request_rate}_n{num_iteration}_c{client_count}_i{input_length}_o{output_length}")
             logger.info(" ".join(cmd))
             return
         
-        with open(log_file, 'a') as f:
-            f.write(f"=== Benchmark: clients={client_count}, input_len={input_length}, output_len={output_length}, request_rate={request_rate}, num_iteration={num_iteration or self.env_vars.get('NUM_ITERATION', self._num_iteration)} ===\n")
+        log_file = self.log_dir / f"vllm_tp{self.env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{client_count}.log"
+        with open(log_file, 'w') as f:
+            f.write(f"=== Benchmark: request_rate={request_rate}, num_iteration={num_iteration}, clients={client_count}, input_len={input_length}, output_len={output_length} ===\n")
+        
         start_time = time.time()
-        with open(log_file, 'a') as f:
-            subprocess.run(cmd, stdout=f, stderr=f, check=True)
-        elapsed_time_seconds = time.time() - start_time
-        hours = int(elapsed_time_seconds // 3600)
-        minutes = int((elapsed_time_seconds % 3600) // 60)
-        seconds = int(elapsed_time_seconds % 60)
-        test_time=f"{hours:02}:{minutes:02}:{seconds:02}"
-        metrics = self._extract_metrics(log_file)
-        metrics['test_time'] = test_time
 
+        # Run the benchmark command and redirect output to log file
+        with open(log_file, 'w') as f:
+            subprocess.run(cmd, stdout=f, stderr=f, check=True)
+
+        # Extract metrics from log file
+        metrics = self._extract_metrics(log_file)
+
+        # calculate test time
+        metrics['test_time'] = str(datetime.timedelta(seconds=(time.time() - start_time))).split(".")[0]
+
+        # Save and print results
         self._save_results(
             request_rate, num_iteration, client_count, input_length, output_length, metrics)
         self._print_result(
@@ -457,8 +466,8 @@ class VLLMBenchmark:
             return False
 
         if num_iteration is None:
-            num_iteration = self.env_vars.get('NUM_ITERATION', self._num_iteration)
-        search_str = f"{self.env_file},{self.num_gpus},{request_rate},{num_iteration},{client_count},{input_length},{output_length}"
+            num_iteration = int(self.env_vars.get('NUM_ITERATION', self._num_iteration))
+        search_str = f"{self.env_file},{self.num_gpus},{request_rate},{num_iteration},{self.max_num_seqs},{client_count},{input_length},{output_length}"
         search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
 
         # print previous benchmark result if exists
@@ -468,16 +477,17 @@ class VLLMBenchmark:
                     if search_str in line:
                         line = line.strip()
                         s_line = [line.split(',')[0].ljust(30)]
-                        s_line += [h.rjust(8) for h in line.split(',')[1:5]] 
-                        s_line += [h.rjust(10) for h in line.split(',')[5:]]
+                        s_line += [h.rjust(8) for h in line.split(',')[1:self.metric_start_column_idx]] 
+                        s_line += [h.rjust(10) for h in line.split(',')[self.metric_start_column_idx:]]
                         logger.info(f"{''.join(s_line)}")
         return search_result
+
     def _save_results(self, request_rate: int, num_iteration: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
 
         """Save benchmark results to the result file."""
         result_line = (
             f"{self.env_file},{self.num_gpus},"
-            f"{request_rate},{num_iteration},{client_count},{input_length},{output_length},{metrics['test_time']},"
+            f"{request_rate},{num_iteration},{self.max_num_seqs},{client_count},{input_length},{output_length},{metrics['test_time']},"
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
             f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
@@ -495,7 +505,7 @@ class VLLMBenchmark:
             request_rate = 'inf'
         result_line = (
             f"{self.env_file.ljust(30)}\t{self.num_gpus:>8d}\t"
-            f"{request_rate:>4d}\t{num_iteration:>4d}\t{client_count:>8d}\t{input_length:>8d}\t{output_length:>8d}\t{metrics['test_time']}\t"
+            f"{request_rate}\t{num_iteration:>4d}\t{client_count:>4d}\t{self.max_num_seqs:>4d}\t{input_length:>8d}\t{output_length:>8d}\t{metrics['test_time']}\t"
             f"{metrics['ttft_mean']:10.2f}\t{metrics['ttft_median']:10.2f}\t{metrics['ttft_p99']:10.2f}\t"
             f"{metrics['tpot_mean']:10.2f}\t{metrics['tpot_median']:10.2f}\t{metrics['tpot_p99']:10.2f}\t"
             f"{metrics['itl_mean']:10.2f}\t{metrics['itl_median']:10.2f}\t{metrics['itl_p99']:10.2f}\t"
@@ -550,7 +560,7 @@ class VLLMBenchmark:
                     self.run_single_benchmark(r, c, i, o, n)
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Benchmark failed for c{c}_i{i}_o{o}_n{n}: {str(e)}")
-                    continue
+                    return
             # Cleanup container after this configuration
             self._cleanup_container()
             if not self.dry_run:
