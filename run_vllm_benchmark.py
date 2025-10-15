@@ -534,7 +534,7 @@ class VLLMBenchmark:
                     logger.warning(f"Skipping invalid line: {line} - {str(e)}")
                     continue
         
-        if not self.client_counts:  # Check if we have any valid combinations
+        if not client_counts:  # Check if we have any valid combinations
             raise ValueError("No valid test combinations found in custom scope file")
         
         return request_rates, client_counts, input_lengths, output_lengths, num_iterations
