@@ -454,8 +454,6 @@ class VLLMBenchmark:
         num_iteration = int(self._num_iteration if num_iteration is None else num_iteration)
 
         num_prompts = client_count * num_iteration
-        if request_rate == 0:
-            request_rate = 'inf'
         cmd = [
             self._container_runtime, "exec", self.container_name,
             "vllm", "bench", "serve",
@@ -467,7 +465,7 @@ class VLLMBenchmark:
             "--ignore-eos",
             "--trust-remote-code",
             f"--num-prompts={num_prompts}",
-            f"--request-rate={request_rate}",
+            f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
             f"--max-concurrency={client_count}",
             f"--random-input-len={input_length}",
             f"--random-output-len={output_length}",
