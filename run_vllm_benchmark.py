@@ -90,7 +90,7 @@ class VLLMBenchmark:
         # Sanity Check
         if not self._test_plan_path.exists():
             raise FileNotFoundError(f"Could not find test plan in configs/plans directory. Please check the plan name")
-        if not self._container_model_path.exists():
+        if not self._model_path.exists():
             raise FileNotFoundError(f"Could not find model path {self._model_name}. Please check model path.")
         
         # GPU configuration
