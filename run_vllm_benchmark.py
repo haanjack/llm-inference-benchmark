@@ -88,9 +88,9 @@ class VLLMBenchmark:
         self._is_dry_run = dry_run
         
         # Sanity Check
-        if not self._test_plan_path.exists():
+        if not self._test_plan_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find test plan in configs/plans directory. Please check the plan name")
-        if not self._model_path.exists():
+        if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model path {self._model_name}. Please check model path.")
         
         # GPU configuration
@@ -230,20 +230,21 @@ class VLLMBenchmark:
         # ROCM version handling
         # rocm version format should be like "6.4.0" or "7.0.1"
         # load rocm version from pytorch installed in container
-        container_rocm_version = subprocess.run(
-            [self._container_runtime, "run", "--rm", self._vllm_image, "python3", "-c", 
-                "import torch; print(torch.version.hip)"],
-            capture_output=True, text=True
-        ).stdout.strip()
-        if container_rocm_version is None or container_rocm_version == "":
-            logger.warning("Failed to get ROCM version from container")
+        if not self._is_dry_run:
+            container_rocm_version = subprocess.run(
+                [self._container_runtime, "run", "--rm", self._vllm_image, "python3", "-c", 
+                    "import torch; print(torch.version.hip)"],
+                capture_output=True, text=True
+            ).stdout.strip()
+            if container_rocm_version is None or container_rocm_version == "":
+                logger.warning("Failed to get ROCM version from container")
 
-        rocm_version_nums = [int(x) for x in re.findall(r'\d+', container_rocm_version)]
-        if len(rocm_version_nums) >= 2:
-            if (rocm_version_nums[0] >= 7):
-                args.append("--async-scheduling")
+            rocm_version_nums = [int(x) for x in re.findall(r'\d+', container_rocm_version)]
+            if len(rocm_version_nums) >= 2:
+                if (rocm_version_nums[0] >= 7):
+                    args.append("--async-scheduling")
 
-        vllm_use_v1 = self._env_vars.get("VLLM_USE_V1", "0")
+        vllm_use_v1 = self._env_vars.get("VLLM_USE_V1", "1") # V1 is default
         if vllm_use_v1 == "0":
             self._env_vars["VLLM_USE_TRITON_FLASH_ATTN"] = "0"
         else:
@@ -309,7 +310,7 @@ class VLLMBenchmark:
             "-v", f"{self._model_path}:{self._container_model_path}:ro",
             self._vllm_image,
             "vllm", "serve",
-            self._container_model_path,
+            f"{self._container_model_path}",
             "--no-enable-log-requests",
             "--trust-remote-code",
             "--tensor-parallel-size", f"{self._num_gpus}",
@@ -460,7 +461,7 @@ class VLLMBenchmark:
         cmd = [
             self._container_runtime, "exec", self.container_name,
             "vllm", "bench", "serve",
-            "--model", self._container_model_path,
+            "--model", f"{self._container_model_path}",
             "--backend", "vllm",
             "--host", "localhost",
             f"--port={self.vllm_port}",
@@ -472,7 +473,7 @@ class VLLMBenchmark:
             f"--max-concurrency={client_count}",
             f"--random-input-len={input_length}",
             f"--random-output-len={output_length}",
-            "--tokenizer", self._container_model_path,
+            "--tokenizer", f"{self._container_model_path}",
             "--disable-tqdm",
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ]
@@ -553,7 +554,7 @@ class VLLMBenchmark:
             logger.info("Server is up and running")
         
         # Warmup
-        if not self._is_no_warmup:
+        if not self._is_no_warmup and not self._is_dry_run:
             warmup_cmd = [
                 self._container_runtime, "exec", self.container_name,
                 "vllm", "bench", "serve",
@@ -575,7 +576,8 @@ class VLLMBenchmark:
                 subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL)
                 logger.info("Warmup complete")
 
-        self._print_header()
+        if not self._is_dry_run:
+            self._print_header()
 
         # Run benchmarks for all configurations
         request_rates, num_iterations, client_counts, input_lengths, output_lengths = \
