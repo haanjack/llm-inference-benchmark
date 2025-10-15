@@ -591,6 +591,11 @@ class VLLMBenchmark:
                     r = self._num_iteration
 
                 self.run_single_benchmark(r, c, i, o, n)
+
+                if self._is_dry_run:
+                    ans = input("Continue to generate benchmark command? (Y/n)")
+                    if ans.lower() != 'y' and ans.lower() != 'yes':
+                        break
             except subprocess.CalledProcessError as e:
                 logger.error(f"Benchmark failed for r{r}_n{n}_c{c}_i{i}_o{o}: {str(e)}")
                 return
