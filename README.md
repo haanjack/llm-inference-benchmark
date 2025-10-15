@@ -10,12 +10,11 @@ This is benchmark script for extensive inference tests for various setups. This 
 ## Basic usage of test
 ```bash
 python run_vllm_benchmark.py \
-    --env-file envs/mi300x/vllm/baseline \
+    --env-file configs/envs/mi300x/vllm/baseline \
     --model-path models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
     --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
-    --bench-scope test \
-    --gpu-devices 0 \
-    --custom-scope-file configs/customs/custom_combination.txt
+    --test-plan test \
+    --gpu-devices 0
 ``` 
 
 ## Test Plan File

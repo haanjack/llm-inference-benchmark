@@ -29,7 +29,7 @@ def get_args():
     parser.add_argument('--env-file', default='baseline', help='Environment file name')
     parser.add_argument('--model-path', help='Model checkpoint path')
     parser.add_argument('--vllm-image', help='vLLM Docker image')
-    parser.add_argument('--test-plan', default='test'
+    parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan which should match with one of file in configs/plans/')
     parser.add_argument('--gpu-devices', help='Comma-separated GPU device IDs')
     
