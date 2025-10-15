@@ -142,7 +142,7 @@ class VLLMBenchmark:
                         continue
                     try:
                         r, c, i, o, n = map(int, line.split())
-                        logger.info(f"{r:>8d}, {c:>8d}, {i:>8d}, {o:>8d}, {n:>8d}")
+                        logger.info(f"{r:>12d} {c:>12d} {i:>12d} {o:>13d} {n:>13d}")
                     except ValueError as e:
                         logger.warning(f"Skipping invalid line: {line} - {str(e)}")
                         continue
@@ -386,6 +386,7 @@ class VLLMBenchmark:
         """Extract metrics from a benchmark log file."""
         metrics = {}
         patterns = {
+            'test_time': r'Benchmark duration \(s\):\s*([\d.]+)',
             'ttft_mean': r'Mean TTFT \(ms\):\s*([\d.]+)',
             'ttft_median': r'Median TTFT \(ms\):\s*([\d.]+)',
             'ttft_p99': r'P99 TTFT \(ms\):\s*([\d.]+)',
@@ -489,8 +490,6 @@ class VLLMBenchmark:
         log_file = self.log_dir / f"vllm_tp{self._env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{client_count}.log"
         with open(log_file, 'w') as f:
             f.write(f"=== Benchmark: request_rate={request_rate}, num_iteration={num_iteration}, clients={client_count}, input_len={input_length}, output_len={output_length} ===\n")
-        
-        start_time = time.time()
 
         # Run the benchmark command and redirect output to log file
         with open(log_file, 'w') as f:
@@ -498,9 +497,6 @@ class VLLMBenchmark:
 
         # Extract metrics from log file
         metrics = self._extract_metrics(log_file)
-
-        # calculate test time
-        metrics['test_time'] = str(datetime.timedelta(seconds=(time.time() - start_time))).split(".")[0]
 
         # Save and print results
         self._save_results(
