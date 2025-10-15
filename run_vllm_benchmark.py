@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 import re
 import requests
+import utils
 
 # Configure logging
 logging.basicConfig(
@@ -19,34 +20,77 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def get_args():
+    """Benchmark arguments"""
+    parser = argparse.ArgumentParser(description='Run vLLM benchmarks')
+
+    # benchmark configuration
+    parser.add_argument('--env-file', default='baseline', help='Environment file name')
+    parser.add_argument('--model-path', help='Model checkpoint path')
+    parser.add_argument('--vllm-image', help='vLLM Docker image')
+    parser.add_argument('--test-plan', default='test'
+                        help='Benchmark test plan which should match with one of file in configs/plans/')
+    parser.add_argument('--gpu-devices', help='Comma-separated GPU device IDs')
+    
+    # server control arguments
+    parser.add_argument('--request-rate', type=int, default=None,
+                       help='Request rate for the benchmark')
+    parser.add_argument('--max-num-seq', type=int, default=None,
+                        help='Max num sequence for vllm serving benchmark (a.k.a batch-size)')
+    parser.add_argument('--num-iteration', type=int, default=None,
+                        help='Number of batch iterations')
+    
+    # test control
+    parser.add_argument('--no-warmup', action='store_true', 
+                        help='no warmup at benchmark start')
+    parser.add_argument('--dry-run', action='store_true', 
+                       help='Show commands without executing them')
+    
+    args = parser.parse_args()
+
+    return args
+
+
 class VLLMBenchmark:
     def __init__(self, 
                  env_file: str = "baseline", 
-                 model_path: Optional[str] = None, 
-                 vllm_image: Optional[str] = None, 
-                 bench_scope: str = "test",
-                 custom_visible_devices: Optional[str] = None,
+                 model_path: str = None, 
+                 vllm_image: str = None, 
+                 test_plan: str = "test",
+                 gpu_devices: str = "0",
                  num_iteration: int = None,
                  request_rate: int = None,
+                 max_seq_num: int = None,
                  no_warmup: bool = False,
-                 custom_scope_file: Optional[str] = None,
                  dry_run: bool = False):
-        self.env_file = env_file
-        self.env_vars = self._load_env_file()
-        self.dry_run = dry_run
-        self._bench_scope = bench_scope
-        self.no_warmup = no_warmup
+        
+        # benchmark configuration
+        self._env_file = env_file
+        self._env_vars = self._load_env_file()
+        self._model_path = self.env_vars.get('MODEL_PATH', self._model_name) if model_path is None else model_path
+        self._model_path = (Path().cwd() / self._model_path) if not Path(self._model_path).is_absolute() else Path(self._model_path)
+        self._model_name = self._model_path.name
+        self._container_model_path = Path(f"/models/{self._model_name}")
+        self._vllm_image = vllm_image or self.env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
+        self._test_plan = test_plan
+        self._test_plan_path = Path(f"configs/plans/{test_plan}.txt")
+        self._gpu_devices = gpu_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
+
+        self._num_iteration = num_iteration
+        self._request_rate = request_rate
+        self._max_seq_num = max_seq_num
+
+        self._is_no_warmup = no_warmup
+        self._is_dry_run = dry_run
  
-        # Initialize configuration
-        self.model_path = self.env_vars.get('MODEL_PATH', self.model_name) if model_path is None else model_path
-        self.model_path = (Path().cwd() / self.model_path) if not Path(self.model_path).is_absolute() else Path(self.model_path)
-        self.model_name = self.model_path.name
-        self._container_model_path = f"/models/{self.model_name}"
-        self.vllm_image = vllm_image or self.env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
+        # Sanity Check
+        if not self._test_plan_path.exists():
+            raise FileNotFoundError(f"Could not find test plan in configs/plans directory. Please check the plan name")
+        if not self._container_model_path.exists():
+            raise FileNotFoundError(f"Could not find model path {self._model_name}. Please check model path.")
         
         # Set benchmark parameters based on scope
-        self._custom_scope_file = custom_scope_file
-        self._set_benchmark_scope()
         self._num_iteration = self.env_vars.get('NUM_ITERATION', 1)
         if num_iteration is not None:
             self._num_iteration = num_iteration
@@ -56,10 +100,10 @@ class VLLMBenchmark:
         self.max_num_seqs = int(self.env_vars.get('MAX_NUM_SEQS', '256'))
         
         # GPU configuration
-        self.gpu_devices = custom_visible_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
-        self.gpu_array = self.gpu_devices.split(',')
-        self.first_gpu_id = self.gpu_array[0] if self.gpu_array else None
-        self.num_gpus = len(self.gpu_array) if self.gpu_array[0] else 0
+        gpu_array = self._gpu_devices.split(',')
+        if len(gpu_array) == 0:
+            raise AssertionError("No GPU is specified. Please specify at least one GPU.")
+        self._num_gpus = len(gpu_array)
         
         # Result file headers
         self._headers = [
@@ -83,18 +127,31 @@ class VLLMBenchmark:
         self._setup_logging_dirs()
 
         # VLLM port setup
-        self.vllm_port = 23400 + int(self.first_gpu_id) if self.first_gpu_id else 23400
+        self.vllm_port = 23400 + int(gpu_array[0]) if gpu_array else 23400
 
-        self.metric_start_column_idx = 9
+        self._metric_start_column_idx = 9
         self._print_benchmark_info()
 
     def _print_benchmark_info(self):
         logger.info("Start vLLM benchmark")
-        logger.info(f"Model Name: {self.model_name}")
-        logger.info(f"vLLM docker image: {self.vllm_image}")
-        logger.info(f"Benchmark scenario: {self._bench_scope}")
-        if self._bench_scope == "custom":
-            logger.info(f"{self._custom_scope_file}")
+        logger.info(f"Model Name: {self._model_name}")
+        logger.info(f"vLLM docker image: {self._vllm_image}")
+        logger.info(f"Benchmark plan: {self._test_plan}")
+        if self._test_plan == "test":
+            # reports test plan from test plan file in configs/plans/{self._test_plan}.txt
+            logger.info("Benchmark test plan::")
+            logger.info("request_rate client_count input_length output_length num_iteration")
+            with open(f"configs/plans/{self._test_plan}.txt") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):  # Skip empty lines and comments
+                        continue
+                    try:
+                        r, c, i, o, n = map(int, line.split())
+                        logger.info(f"{r:>8d}, {c:>8d}, {i:>8d}, {o:>8d}, {n:>8d}")
+                    except ValueError as e:
+                        logger.warning(f"Skipping invalid line: {line} - {str(e)}")
+                        continue
 
     def _is_docker_available(self) -> bool:
         """Check if Docker is installed on the system."""
@@ -105,9 +162,9 @@ class VLLMBenchmark:
         
     def _load_env_file(self) -> Dict[str, str]:
         """Load environment variables from the specified env file."""
-        env_file_path = Path.cwd() / self.env_file
+        env_file_path = Path.cwd() / self._env_file
         env_vars = {}
-        
+
         if not env_file_path.exists():
             raise FileNotFoundError(f"Environment file not found: {env_file_path}")
             
@@ -122,82 +179,23 @@ class VLLMBenchmark:
                         continue
         return env_vars
 
-    def _set_benchmark_scope(self):
-        """Set benchmark parameters based on scope."""
-        if self._bench_scope == "test":
-            self.client_counts = [4]
-            self._num_iteration = 4
-            self.input_lengths = [1024]
-            self.output_lengths = [256]
-        elif self._bench_scope == "prefill":
-            self.client_counts = [1, 2, 4, 8, 16, 32, 64, 128]
-            self.input_lengths = [256, 512, 1024, 2048, 4096, 8192]
-            self.output_lengths = [128]
-        elif self._bench_scope == "decode":
-            self.client_counts = [1, 2, 4, 8, 16, 32, 64, 128]
-            self.input_lengths = [128]
-            self.output_lengths = [128, 1024, 2048, 4096]
-        elif self._bench_scope == "middle":
-            self.client_counts = [1, 2, 4, 8, 16, 32, 64, 128]
-            self.input_lengths = [1024, 2048, 4096, 8192]
-            self.output_lengths = [1024, 2048, 4096]
-        elif self._bench_scope == "custom":
-            # load from test combinations in self._custom_scope_file
-            # combinations should be in the format of "request_rate client_count input_length output_length num_iteration"
-            # one combination per line
-            if not self._custom_scope_file:
-                raise ValueError("Custom scope file must be provided for custom scope")
-            custom_scope_path = Path(self._custom_scope_file)
-            if not custom_scope_path.exists():
-                raise FileNotFoundError(f"Custom scope file not found: {custom_scope_path}")
-            
-            self.request_rates = []
-            self.client_counts = []
-            self.input_lengths = []
-            self.output_lengths = []
-            self.num_iterations = []
-
-            with open(custom_scope_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('#'):  # Skip empty lines and comments
-                        continue
-                    try:
-                        r, c, i, o, n = map(int, line.split())
-                        self.request_rates.append(r)
-                        self.client_counts.append(c)
-                        self.input_lengths.append(i)
-                        self.output_lengths.append(o)
-                        self.num_iterations.append(n)
-                    except ValueError as e:
-                        logger.warning(f"Skipping invalid line: {line} - {str(e)}")
-                        continue
-            
-            if not self.client_counts:  # Check if we have any valid combinations
-                raise ValueError("No valid test combinations found in custom scope file")
-
-        else:
-            raise ValueError(f"Invalid benchmark scope: {self._bench_scope}")
-        
-
     def _setup_container_name(self):
         """Setup container name based on environment and GPU configuration."""
-        process_name = self.env_file
-        image_tag = self.vllm_image.split(':')[-1]
+        image_tag = self._vllm_image.split(':')[-1]
         slurm_job_id = os.environ.get("SLURM_JOB_ID", None)
         
         self.container_name = ""
         if slurm_job_id:
             self.container_name = f"{slurm_job_id}-"
-        self.container_name += f"{os.path.basename(self.model_name)}-{image_tag}-{os.path.basename(self.env_file)}-g{self.gpu_devices.replace(',', '_')}"
+        self.container_name += f"{os.path.basename(self._model_name)}-{image_tag}-{os.path.basename(self._env_file)}-g{self._gpu_devices.replace(',', '_')}"
 
     def _setup_logging_dirs(self):
         """Setup logging directories for the benchmark."""
-        image_tag = self.vllm_image.split(':')[-1]
-        self.log_dir = Path("logs") / self.model_name / image_tag
+        image_tag = self._vllm_image.split(':')[-1]
+        self.log_dir = Path("logs") / self._model_name / image_tag
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
-        self.server_log = self.log_dir / "server_logs" / f"{os.path.basename(self.model_name)}-{image_tag}-{os.path.basename(self.env_file)}-t{self.num_gpus}.txt"
+        self.server_log = self.log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{image_tag}-{os.path.basename(self._env_file)}-t{self._num_gpus}.txt"
         self.result_file = self.log_dir / "result_list.csv"
         
         self.server_log.parent.mkdir(parents=True, exist_ok=True)
@@ -217,8 +215,8 @@ class VLLMBenchmark:
         # print header line to console
         headers_split = ''.join(self._headers).split(',')
         headers_line = [headers_split[0].ljust(30)]
-        headers_line += [h.rjust(8) for h in headers_split[1:self.metric_start_column_idx]]
-        headers_line += [h.rjust(10) for h in headers_split[self.metric_start_column_idx:]]
+        headers_line += [h.rjust(8) for h in headers_split[1:self._metric_start_column_idx]]
+        headers_line += [h.rjust(10) for h in headers_split[self._metric_start_column_idx:]]
         logger.info('\t'.join(headers_line))
 
     def _get_vllm_args(self) -> str:
@@ -239,7 +237,7 @@ class VLLMBenchmark:
         # rocm version format should be like "6.4.0" or "7.0.1"
         # load rocm version from pytorch installed in container
         container_rocm_version = subprocess.run(
-            [self._container_runtime, "run", "--rm", self.vllm_image, "python3", "-c", 
+            [self._container_runtime, "run", "--rm", self._vllm_image, "python3", "-c", 
                 "import torch; print(torch.version.hip)"],
             capture_output=True, text=True
         ).stdout.strip()
@@ -295,7 +293,7 @@ class VLLMBenchmark:
 
     def start_server(self):
         """Start the vLLM server in a Docker container."""
-        if not self.dry_run:
+        if not self._is_dry_run:
             self._cleanup_container()
         
         group_option="keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
@@ -310,17 +308,17 @@ class VLLMBenchmark:
             "--cap-add=SYS_PTRACE",
             "--shm-size=8g",
             "--security-opt", "seccomp=unconfined",
-            "--env-file", str(Path.cwd() / self.env_file),
+            "--env-file", str(Path.cwd() / self._env_file),
             "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self.env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
-            "-e", f"CUDA_VISIBLE_DEVICES={self.gpu_devices}",
+            "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
             "-v", f"{os.environ.get('HOME')}:/workspace/",
-            "-v", f"{self.model_path}:{self._container_model_path}:ro",
-            self.vllm_image,
+            "-v", f"{self._model_path}:{self._container_model_path}:ro",
+            self._vllm_image,
             "vllm", "serve",
             self._container_model_path,
             "--no-enable-log-requests",
             "--trust-remote-code",
-            "--tensor-parallel-size", f"{self.num_gpus}",
+            "--tensor-parallel-size", f"{self._num_gpus}",
             "--distributed-executor-backend", "mp",
             "--port", f"{self.vllm_port}",
             "--host", "0.0.0.0"
@@ -328,7 +326,7 @@ class VLLMBenchmark:
         
         cmd.extend(self._get_vllm_args().split())
         
-        if self.dry_run:
+        if self._is_dry_run:
             logger.info("Dry run - Docker server command:")
             logger.info(" ".join(cmd))
         else:
@@ -351,16 +349,44 @@ class VLLMBenchmark:
             # Store process IDs for later cleanup if needed
             self.log_processes = [stdout_process, stderr_process]
 
-    def _wait_for_server(self, timeout: int = 1200) -> bool:
+    def _wait_for_server(self, timeout: int = 2400) -> bool:
         """Wait for the server to become available."""
         start_time = time.time()
-        while time.time() - start_time < timeout:
+        
+        while time.time() - start_time < timeout or utils.get_gfx_clk_value(self._gpu_devices[0]) > 1_000:
             try:
                 response = requests.get(f"http://localhost:{self.vllm_port}/v1/models")
                 return True
             except requests.exceptions.RequestException:
                 time.sleep(5)
         return False
+
+    def _check_existing_result(self, 
+                               request_rate: int, 
+                               client_count: int, 
+                               input_length: int, 
+                               output_length: int, 
+                               num_iteration: Optional[int]) -> bool:
+        """Check if results already exist for this configuration."""
+        if not self.result_file.exists():
+            return False
+
+        if num_iteration is None:
+            num_iteration = int(self.env_vars.get('NUM_ITERATION', self._num_iteration))
+        search_str = f"{self._env_file},{self._num_gpus},{request_rate},{num_iteration},{self.max_num_seqs},{client_count},{input_length},{output_length}"
+        search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
+
+        # print previous benchmark result if exists
+        if search_result:
+            with open(self.result_file, 'r') as f:
+                for line in f:
+                    if search_str in line:
+                        line = line.strip()
+                        s_line = [line.split(',')[0].ljust(30)]
+                        s_line += [h.rjust(8) for h in line.split(',')[1:self._metric_start_column_idx]] 
+                        s_line += [h.rjust(10) for h in line.split(',')[self._metric_start_column_idx:]]
+                        logger.info(f"{''.join(s_line)}")
+        return search_result
 
     def _extract_metrics(self, log_file: Path) -> Dict[str, float]:
         """Extract metrics from a benchmark log file."""
@@ -390,6 +416,39 @@ class VLLMBenchmark:
             
         return metrics
 
+    def _save_results(self, request_rate: int, num_iteration: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
+
+        """Save benchmark results to the result file."""
+        result_line = (
+            f"{self._env_file},{self._num_gpus},"
+            f"{request_rate},{num_iteration},{self.max_num_seqs},{client_count},{input_length},{output_length},{metrics['test_time']},"
+            f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
+            f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
+            f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
+            f"{metrics['e2el_mean']:.2f},{metrics['e2el_median']:.2f},{metrics['e2el_p99']:.2f},"
+            f"{metrics['request_throughput']:.2f},"
+            f"{metrics['output_token_throughput']:.2f},{metrics['total_token_throughput']:.2f}\n"
+        )
+        
+        with open(self.result_file, 'a') as f:
+            f.write(result_line)
+
+    def _print_result(self, request_rate: int, num_iteration: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
+        """Print the result to console."""
+        if request_rate == 0:
+            request_rate = 'inf'
+        result_line = (
+            f"{self._env_file.ljust(30)}\t{self._num_gpus:>8d}\t"
+            f"{request_rate}\t{num_iteration:>4d}\t{self.max_num_seqs:>4d}\t{client_count:>4d}\t{input_length:>8d}\t{output_length:>8d}\t{metrics['test_time']}\t"
+            f"{metrics['ttft_mean']:10.2f}\t{metrics['ttft_median']:10.2f}\t{metrics['ttft_p99']:10.2f}\t"
+            f"{metrics['tpot_mean']:10.2f}\t{metrics['tpot_median']:10.2f}\t{metrics['tpot_p99']:10.2f}\t"
+            f"{metrics['itl_mean']:10.2f}\t{metrics['itl_median']:10.2f}\t{metrics['itl_p99']:10.2f}\t"
+            f"{metrics['e2el_mean']:10.2f}\t{metrics['request_throughput']:10.2f}\t"
+            f"{metrics['output_token_throughput']:10.2f}\t{metrics['total_token_throughput']:10.2f}"
+        )
+
+        logger.info(result_line)
+
     def run_single_benchmark(self, 
                              request_rate: int, 
                              client_count: int, 
@@ -398,6 +457,8 @@ class VLLMBenchmark:
                              num_iteration: Optional[int] = None):
         """Run a single benchmark iteration."""
         
+        # if required iteration is not given, use default value
+        # which enables to iterate following benchmark plan
         num_iteration = int(self._num_iteration if num_iteration is None else num_iteration)
 
         num_prompts = client_count * num_iteration
@@ -428,7 +489,7 @@ class VLLMBenchmark:
             # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
             return
 
-        if self.dry_run:
+        if self._is_dry_run:
             logger.info(f"Dry run - Benchmark command for r{request_rate}_n{num_iteration}_c{client_count}_i{input_length}_o{output_length}")
             logger.info(" ".join(cmd))
             return
@@ -455,81 +516,56 @@ class VLLMBenchmark:
         self._print_result(
             request_rate, num_iteration, client_count, input_length, output_length, metrics)
 
-    def _check_existing_result(self, 
-                               request_rate: int, 
-                               client_count: int, 
-                               input_length: int, 
-                               output_length: int, 
-                               num_iteration: Optional[int]) -> bool:
-        """Check if results already exist for this configuration."""
-        if not self.result_file.exists():
-            return False
-
-        if num_iteration is None:
-            num_iteration = int(self.env_vars.get('NUM_ITERATION', self._num_iteration))
-        search_str = f"{self.env_file},{self.num_gpus},{request_rate},{num_iteration},{self.max_num_seqs},{client_count},{input_length},{output_length}"
-        search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
-
-        # print previous benchmark result if exists
-        if search_result:
-            with open(self.result_file, 'r') as f:
-                for line in f:
-                    if search_str in line:
-                        line = line.strip()
-                        s_line = [line.split(',')[0].ljust(30)]
-                        s_line += [h.rjust(8) for h in line.split(',')[1:self.metric_start_column_idx]] 
-                        s_line += [h.rjust(10) for h in line.split(',')[self.metric_start_column_idx:]]
-                        logger.info(f"{''.join(s_line)}")
-        return search_result
-
-    def _save_results(self, request_rate: int, num_iteration: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
-
-        """Save benchmark results to the result file."""
-        result_line = (
-            f"{self.env_file},{self.num_gpus},"
-            f"{request_rate},{num_iteration},{self.max_num_seqs},{client_count},{input_length},{output_length},{metrics['test_time']},"
-            f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
-            f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
-            f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
-            f"{metrics['e2el_mean']:.2f},{metrics['e2el_median']:.2f},{metrics['e2el_p99']:.2f},"
-            f"{metrics['request_throughput']:.2f},"
-            f"{metrics['output_token_throughput']:.2f},{metrics['total_token_throughput']:.2f}\n"
-        )
+    def _get_benchmark_scope(self):
+        """Set benchmark parameters based on scope."""
+        # load from test combinations in self._test_plan_path
+        # combinations should be in the format of "request_rate client_count input_length output_length num_iteration"
+        # one combination per line
+        if not self._test_plan_path:
+            raise ValueError("Custom scope file must be provided for custom scope")
         
-        with open(self.result_file, 'a') as f:
-            f.write(result_line)
+        request_rates = []
+        num_iterations = []
+        client_counts = []
+        input_lengths = []
+        output_lengths = []
 
-    def _print_result(self, request_rate: int, num_iteration: int, client_count: int, input_length: int, output_length: int, metrics: Dict[str, float]):
-        """Print the result to console."""
-        if request_rate == 0:
-            request_rate = 'inf'
-        result_line = (
-            f"{self.env_file.ljust(30)}\t{self.num_gpus:>8d}\t"
-            f"{request_rate}\t{num_iteration:>4d}\t{client_count:>4d}\t{self.max_num_seqs:>4d}\t{input_length:>8d}\t{output_length:>8d}\t{metrics['test_time']}\t"
-            f"{metrics['ttft_mean']:10.2f}\t{metrics['ttft_median']:10.2f}\t{metrics['ttft_p99']:10.2f}\t"
-            f"{metrics['tpot_mean']:10.2f}\t{metrics['tpot_median']:10.2f}\t{metrics['tpot_p99']:10.2f}\t"
-            f"{metrics['itl_mean']:10.2f}\t{metrics['itl_median']:10.2f}\t{metrics['itl_p99']:10.2f}\t"
-            f"{metrics['e2el_mean']:10.2f}\t{metrics['request_throughput']:10.2f}\t"
-            f"{metrics['output_token_throughput']:10.2f}\t{metrics['total_token_throughput']:10.2f}"
-        )
-
-        logger.info(result_line)
+        with open(self._test_plan_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):  # Skip empty lines and comments
+                    continue
+                try:
+                    r, c, i, o, n = map(int, line.split())
+                    request_rates.append(r)
+                    client_counts.append(c)
+                    input_lengths.append(i)
+                    output_lengths.append(o)
+                    num_iterations.append(n)
+                except ValueError as e:
+                    logger.warning(f"Skipping invalid line: {line} - {str(e)}")
+                    continue
+        
+        if not self.client_counts:  # Check if we have any valid combinations
+            raise ValueError("No valid test combinations found in custom scope file")
+        
+        return request_rates, client_counts, input_lengths, output_lengths, num_iterations
 
     def run_benchmark(self):
         """Run the full benchmark suite."""
-        if self.num_gpus == 0:
+        if self._num_gpus == 0:
             raise ValueError("No GPU is allocated")
 
         # Start server for this configuration
         self.start_server()
-        if not self.dry_run:
+        if not self._is_dry_run:
             if not self._wait_for_server():
                 raise RuntimeError("Server failed to start")
         
             logger.info("Server is up and running")
         
         # Warmup
-        if not self.no_warmup:
+        if not self._is_no_warmup:
             warmup_cmd = [
                 self._container_runtime, "exec", self.container_name,
                 "vllm", "bench", "serve",
@@ -546,7 +582,7 @@ class VLLMBenchmark:
                 "--random-output-len", "256",
                 "--tokenizer", self._container_model_path
             ]
-            if not self.dry_run:
+            if not self._is_dry_run:
                 logger.info("Started vLLM server warmup. Will have small tests ahead of real benchmarks")
                 subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL)
                 logger.info("Warmup complete")
@@ -554,68 +590,40 @@ class VLLMBenchmark:
         self._print_header()
 
         # Run benchmarks for all configurations
-        if self._bench_scope == "custom":
-            for r, c, i, o, n in zip(self.request_rates, self.client_counts, self.input_lengths, self.output_lengths, self.num_iterations):
-                try:
-                    self.run_single_benchmark(r, c, i, o, n)
-                except subprocess.CalledProcessError as e:
-                    logger.error(f"Benchmark failed for c{c}_i{i}_o{o}_n{n}: {str(e)}")
-                    return
-            # Cleanup container after this configuration
-            self._cleanup_container()
-            if not self.dry_run:
-                logger.info(f"Benchmarking complete. Results saved to {self.result_file}")
-            return
-        else:
-            request_rate = self._request_rate if self._request_rate is not None else 'inf'
-            for output_length in self.output_lengths:
-                for input_length in self.input_lengths:
-                    # Run benchmarks for all client counts
-                    for client_count in self.client_counts:
-                        try:
-                            self.run_single_benchmark(request_rate, client_count, input_length, output_length, self._num_iteration)
-                        except subprocess.CalledProcessError as e:
-                            logger.error(f"Benchmark failed for c{client_count}_i{input_length}_o{output_length}: {str(e)}")
-                            continue
-                
+        request_rates, num_iterations, client_counts, input_lengths, output_lengths = \
+            self._get_benchmark_scope()
+        for r, c, i, o, n in zip(request_rates, num_iterations, client_counts, input_lengths, output_lengths):
+            try:
+                # use specified argument in cli
+                if self._request_rate is not None:
+                    r = self._request_rate
+                if self._num_iteration is not None:
+                    r = self._num_iteration
+
+                self.run_single_benchmark(r, c, i, o, n)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Benchmark failed for r{r}_n{n}_c{c}_i{i}_o{o}: {str(e)}")
+                return
+    
         # Cleanup container after this configuration
         self._cleanup_container()
-
-        if not self.dry_run:
+        if not self._is_dry_run:
             logger.info(f"Benchmarking complete. Results saved to {self.result_file}")
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Run vLLM benchmarks')
-    parser.add_argument('--env-file', default='baseline', help='Environment file name')
-    parser.add_argument('--model-path', help='Model checkpoint path')
-    parser.add_argument('--vllm-image', help='vLLM Docker image')
-    parser.add_argument('--bench-scope', default='test', 
-                       choices=['test', 'custom', 'prefill', 'decode', 'middle'],
-                       help='Benchmark scope')
-    parser.add_argument('--gpu-devices', help='Comma-separated GPU device IDs')
-    parser.add_argument('--num-iteration', type=int, default=None,
-                        help='Number of batch iterations')
-    parser.add_argument('--request-rate', type=int, default=None,
-                       help='Request rate for the benchmark')
-    parser.add_argument('--custom-scope-file', type=str, default=None,
-                        help='Path to the custom scope file (if bench-scope is custom)')
-    parser.add_argument('--no-warmup', action='store_true', 
-                        help='no warmup at benchmark start')
-    parser.add_argument('--dry-run', action='store_true', 
-                       help='Show commands without executing them')
-    
-    args = parser.parse_args()
+    args = get_args()    
     
     try:
         benchmark = VLLMBenchmark(
             env_file=args.env_file,
             model_path=args.model_path,
             vllm_image=args.vllm_image,
-            bench_scope=args.bench_scope,
-            custom_visible_devices=args.gpu_devices,
+            test_plan=args.test_plan,
+            gpu_devices=args.gpu_devices,
             request_rate=args.request_rate,
-            custom_scope_file=args.custom_scope_file,
             num_iteration=args.num_iteration,
+            max_seq_num=args.max_seq_num,
             no_warmup=args.no_warmup,
             dry_run=args.dry_run,
         )
