@@ -68,19 +68,19 @@ class VLLMBenchmark:
         # benchmark configuration
         self._env_file = env_file
         self._env_vars = self._load_env_file()
-        self._model_path = self.env_vars.get('MODEL_PATH', self._model_name) if model_path is None else model_path
+        self._model_path = self._env_vars.get('MODEL_PATH', self._model_name) if model_path is None else model_path
         self._model_path = (Path().cwd() / self._model_path) if not Path(self._model_path).is_absolute() else Path(self._model_path)
         self._model_name = self._model_path.name
         self._container_model_path = Path(f"/models/{self._model_name}")
-        self._vllm_image = vllm_image or self.env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
+        self._vllm_image = vllm_image or self._env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
         self._test_plan = test_plan
         self._test_plan_path = Path(f"configs/plans/{test_plan}.txt")
         self._gpu_devices = gpu_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
 
         # Set benchmark parameters based on scope
-        self._num_iteration = int(self.env_vars.get('NUM_ITERATION', 1)) if num_iteration is None else num_iteration
-        self._request_rate = int(self.env_vars.get('REQUEST_RATE', 1)) if request_rate is None else request_rate 
-        self._max_num_seqs = int(self.env_vars.get('MAX_NUM_SEQS', '256')) if max_num_seqs is None else max_num_seqs
+        self._num_iteration = int(self._env_vars.get('NUM_ITERATION', 1)) if num_iteration is None else num_iteration
+        self._request_rate = int(self._env_vars.get('REQUEST_RATE', 1)) if request_rate is None else request_rate 
+        self._max_num_seqs = int(self._env_vars.get('MAX_NUM_SEQS', '256')) if max_num_seqs is None else max_num_seqs
 
         self._is_no_warmup = no_warmup
         self._is_dry_run = dry_run
@@ -215,15 +215,15 @@ class VLLMBenchmark:
         """Construct VLLM arguments based on environment variables."""
         # max_model_len = self.input_lengths[-1] + self.output_lengths[-1] + 256
         args = [
-            "--kv-cache-dtype", f"{self.env_vars.get('KV_CACHE_DTYPE', '')}",
-            "--gpu_memory_utilization", f"{self.env_vars.get('GPU_MEMORY_UTILIZATION', '0.9')}",
-            "--max-num-batched-token", f"{self.env_vars.get('MAX_NUM_BATCHED_TOKENS', '4096')}",
+            "--kv-cache-dtype", f"{self._env_vars.get('KV_CACHE_DTYPE', '')}",
+            "--gpu_memory_utilization", f"{self._env_vars.get('GPU_MEMORY_UTILIZATION', '0.9')}",
+            "--max-num-batched-token", f"{self._env_vars.get('MAX_NUM_BATCHED_TOKENS', '4096')}",
             "--max-num-seqs", f"{self._max_num_seqs}",
             "--swap-space", "16",
             "--no-enable-prefix-caching",
         ]
-        if self.env_vars.get('QUANTIZATION', 'auto') != 'auto':
-            args.extend(["--quantization", f"{self.env_vars.get('QUANTIZATION')}"])
+        if self._env_vars.get('QUANTIZATION', 'auto') != 'auto':
+            args.extend(["--quantization", f"{self._env_vars.get('QUANTIZATION')}"])
         
         # ROCM version handling
         # rocm version format should be like "6.4.0" or "7.0.1"
@@ -241,12 +241,12 @@ class VLLMBenchmark:
             if (rocm_version_nums[0] >= 7):
                 args.append("--async-scheduling")
 
-        vllm_use_v1 = self.env_vars.get("VLLM_USE_V1", "0")
+        vllm_use_v1 = self._env_vars.get("VLLM_USE_V1", "0")
         if vllm_use_v1 == "0":
-            self.env_vars["VLLM_USE_TRITON_FLASH_ATTN"] = "0"
+            self._env_vars["VLLM_USE_TRITON_FLASH_ATTN"] = "0"
         else:
-            if self.env_vars.get("VLLM_ROCM_USE_AITER") == "1":
-                cudagraph_mode = self.env_vars.get("VLLM_CUDAGRAPH_MODE", "")
+            if self._env_vars.get("VLLM_ROCM_USE_AITER") == "1":
+                cudagraph_mode = self._env_vars.get("VLLM_CUDAGRAPH_MODE", "")
                 if cudagraph_mode:
                     modes = {
                         "NONE": "null",
@@ -301,7 +301,7 @@ class VLLMBenchmark:
             "--shm-size=8g",
             "--security-opt", "seccomp=unconfined",
             "--env-file", str(Path.cwd() / self._env_file),
-            "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self.env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
+            "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self._env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
             "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
             "-v", f"{os.environ.get('HOME')}:/workspace/",
             "-v", f"{self._model_path}:{self._container_model_path}:ro",
@@ -364,7 +364,7 @@ class VLLMBenchmark:
             return False
 
         if num_iteration is None:
-            num_iteration = int(self.env_vars.get('NUM_ITERATION', self._num_iteration))
+            num_iteration = int(self._env_vars.get('NUM_ITERATION', self._num_iteration))
         search_str = f"{self._env_file},{self._num_gpus},{request_rate},{num_iteration},{self._max_num_seqs},{client_count},{input_length},{output_length}"
         search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
 
@@ -486,7 +486,7 @@ class VLLMBenchmark:
             logger.info(" ".join(cmd))
             return
         
-        log_file = self.log_dir / f"vllm_tp{self.env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{client_count}.log"
+        log_file = self.log_dir / f"vllm_tp{self._env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{client_count}.log"
         with open(log_file, 'w') as f:
             f.write(f"=== Benchmark: request_rate={request_rate}, num_iteration={num_iteration}, clients={client_count}, input_len={input_length}, output_len={output_length} ===\n")
         
