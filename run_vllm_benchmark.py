@@ -36,7 +36,7 @@ def get_args():
     # server control arguments
     parser.add_argument('--request-rate', type=int, default=None,
                        help='Request rate for the benchmark')
-    parser.add_argument('--max-num-seq', type=int, default=None,
+    parser.add_argument('--max-num-seqs', type=int, default=None,
                         help='Max num sequence for vllm serving benchmark (a.k.a batch-size)')
     parser.add_argument('--num-iteration', type=int, default=None,
                         help='Number of batch iterations')
@@ -61,7 +61,7 @@ class VLLMBenchmark:
                  gpu_devices: str = "0",
                  num_iteration: int = None,
                  request_rate: int = None,
-                 max_seq_num: int = None,
+                 max_num_seqs: int = None,
                  no_warmup: bool = False,
                  dry_run: bool = False):
         
@@ -77,27 +77,19 @@ class VLLMBenchmark:
         self._test_plan_path = Path(f"configs/plans/{test_plan}.txt")
         self._gpu_devices = gpu_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
 
-        self._num_iteration = num_iteration
-        self._request_rate = request_rate
-        self._max_seq_num = max_seq_num
+        # Set benchmark parameters based on scope
+        self._num_iteration = int(self.env_vars.get('NUM_ITERATION', 1)) if num_iteration is None else num_iteration
+        self._request_rate = int(self.env_vars.get('REQUEST_RATE', 1)) if request_rate is None else request_rate 
+        self._max_num_seqs = int(self.env_vars.get('MAX_NUM_SEQS', '256')) if max_num_seqs is None else max_num_seqs
 
         self._is_no_warmup = no_warmup
         self._is_dry_run = dry_run
- 
+        
         # Sanity Check
         if not self._test_plan_path.exists():
             raise FileNotFoundError(f"Could not find test plan in configs/plans directory. Please check the plan name")
         if not self._container_model_path.exists():
             raise FileNotFoundError(f"Could not find model path {self._model_name}. Please check model path.")
-        
-        # Set benchmark parameters based on scope
-        self._num_iteration = self.env_vars.get('NUM_ITERATION', 1)
-        if num_iteration is not None:
-            self._num_iteration = num_iteration
-        self._request_rate = self.env_vars.get('REQUEST_RATE', 1)
-        if request_rate is not None:
-            self._request_rate = request_rate
-        self.max_num_seqs = int(self.env_vars.get('MAX_NUM_SEQS', '256'))
         
         # GPU configuration
         gpu_array = self._gpu_devices.split(',')
@@ -221,12 +213,12 @@ class VLLMBenchmark:
 
     def _get_vllm_args(self) -> str:
         """Construct VLLM arguments based on environment variables."""
-        max_model_len = self.input_lengths[-1] + self.output_lengths[-1] + 256
+        # max_model_len = self.input_lengths[-1] + self.output_lengths[-1] + 256
         args = [
             "--kv-cache-dtype", f"{self.env_vars.get('KV_CACHE_DTYPE', '')}",
             "--gpu_memory_utilization", f"{self.env_vars.get('GPU_MEMORY_UTILIZATION', '0.9')}",
             "--max-num-batched-token", f"{self.env_vars.get('MAX_NUM_BATCHED_TOKENS', '4096')}",
-            "--max-num-seqs", f"{self.max_num_seqs}",
+            "--max-num-seqs", f"{self._max_num_seqs}",
             "--swap-space", "16",
             "--no-enable-prefix-caching",
         ]
@@ -373,7 +365,7 @@ class VLLMBenchmark:
 
         if num_iteration is None:
             num_iteration = int(self.env_vars.get('NUM_ITERATION', self._num_iteration))
-        search_str = f"{self._env_file},{self._num_gpus},{request_rate},{num_iteration},{self.max_num_seqs},{client_count},{input_length},{output_length}"
+        search_str = f"{self._env_file},{self._num_gpus},{request_rate},{num_iteration},{self._max_num_seqs},{client_count},{input_length},{output_length}"
         search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
 
         # print previous benchmark result if exists
@@ -421,7 +413,7 @@ class VLLMBenchmark:
         """Save benchmark results to the result file."""
         result_line = (
             f"{self._env_file},{self._num_gpus},"
-            f"{request_rate},{num_iteration},{self.max_num_seqs},{client_count},{input_length},{output_length},{metrics['test_time']},"
+            f"{request_rate},{num_iteration},{self._max_num_seqs},{client_count},{input_length},{output_length},{metrics['test_time']},"
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
             f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
@@ -439,7 +431,7 @@ class VLLMBenchmark:
             request_rate = 'inf'
         result_line = (
             f"{self._env_file.ljust(30)}\t{self._num_gpus:>8d}\t"
-            f"{request_rate}\t{num_iteration:>4d}\t{self.max_num_seqs:>4d}\t{client_count:>4d}\t{input_length:>8d}\t{output_length:>8d}\t{metrics['test_time']}\t"
+            f"{request_rate}\t{num_iteration:>4d}\t{self._max_num_seqs:>4d}\t{client_count:>4d}\t{input_length:>8d}\t{output_length:>8d}\t{metrics['test_time']}\t"
             f"{metrics['ttft_mean']:10.2f}\t{metrics['ttft_median']:10.2f}\t{metrics['ttft_p99']:10.2f}\t"
             f"{metrics['tpot_mean']:10.2f}\t{metrics['tpot_median']:10.2f}\t{metrics['tpot_p99']:10.2f}\t"
             f"{metrics['itl_mean']:10.2f}\t{metrics['itl_median']:10.2f}\t{metrics['itl_p99']:10.2f}\t"
@@ -623,7 +615,7 @@ def main():
             gpu_devices=args.gpu_devices,
             request_rate=args.request_rate,
             num_iteration=args.num_iteration,
-            max_seq_num=args.max_seq_num,
+            max_num_seqs=args.max_num_seqs,
             no_warmup=args.no_warmup,
             dry_run=args.dry_run,
         )
