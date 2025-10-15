@@ -79,7 +79,9 @@ class VLLMBenchmark:
 
         # Set benchmark parameters based on scope
         self._num_iteration = int(self._env_vars.get('NUM_ITERATION', 1)) if num_iteration is None else num_iteration
-        self._request_rate = int(self._env_vars.get('REQUEST_RATE', 1)) if request_rate is None else request_rate 
+        self._request_rate = self._env_vars.get('REQUEST_RATE', 1) if request_rate is None else request_rate
+        if self._request_rate == 'inf':
+            self._request_rate = 0
         self._max_num_seqs = int(self._env_vars.get('MAX_NUM_SEQS', '256')) if max_num_seqs is None else max_num_seqs
 
         self._is_no_warmup = no_warmup
