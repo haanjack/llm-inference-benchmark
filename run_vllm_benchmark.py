@@ -249,24 +249,22 @@ class VLLMBenchmark:
             self._env_vars["VLLM_USE_TRITON_FLASH_ATTN"] = "0"
         else:
             if self._env_vars.get("VLLM_ROCM_USE_AITER") == "1":
-                cudagraph_mode = self._env_vars.get("VLLM_CUDAGRAPH_MODE", "")
+                cudagraph_mode = self._env_vars.get("VLLM_CUDAGRAPH_MODE", "FULL_AND_PIECEWISE")
                 if cudagraph_mode:
                     modes = {
-                        "NONE": "null",
-                        "PIECEWISE": "PIECEWISE",
-                        "FULL": "FULL",
-                        "FULL_DECODE_ONLY": "FULL_DECODE_ONLY",
-                        "FULL_AND_PIECEWISE": "FULL_AND_PIECEWISE",
-                        "MOE": "{\"compile_sizes\":1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,90,92,94,96,98,100,102,104,106,108,110,112,114,116,118,120,122,124,126,128,256,512,1024,2048,8192], "
-                                "\"cudagraph_capture_sizes\":[1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,90,92,94,96,98,100,102,104,106,108,110,112,114,116,118,120,122,124,126,128,136,144,152,160,168,176,184,192,200,208,216,224,232,240,248,256,264,272,280,288,296,304,312,320,328,336,344,352,360,368,376,384,392,400,408,416,424,432,440,448,456,464,472,480,488,496,504,512,520,528,536,544,552,560,568,576,584,592,600,608,616,624,632,640,648,656,664,672,680,688,696,704,712,720,728,736,744,752,760,768,776,784,792,800,808,816,824,832,840,848,856,864,872,880,888,896,904,912,920,928,936,944,952,960,968,976,984,992,1000,1008,1016,1024,2048,4096,8192], "
-                                "\"cudagraph_mode\": \"FULL_AND_PIECEWISE\"}"
+                        "NONE":                 "{\"compilation_config\": null}",
+                        "PIECEWISE":            "{\"compilation_config\": \"PIECEWISE\"}",
+                        "FULL":                 "{\"compilation_config\": \"FULL\"}",
+                        "FULL_DECODE_ONLY":     "{\"compilation_config\": \"FULL_DECODE_ONLY\"}",
+                        "FULL_AND_PIECEWISE":   "{\"compilation_config\": \"FULL_AND_PIECEWISE\"}",
+                        "MOE": "{\"compile_sizes\":[1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,90,92,94,96,98,100,102,104,106,108,110,112,114,116,118,120,122,124,126,128,256,512,1024,2048,8192], "\
+                                "\"cudagraph_capture_sizes\":[1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,90,92,94,96,98,100,102,104,106,108,110,112,114,116,118,120,122,124,126,128,136,144,152,160,168,176,184,192,200,208,216,224,232,240,248,256,264,272,280,288,296,304,312,320,328,336,344,352,360,368,376,384,392,400,408,416,424,432,440,448,456,464,472,480,488,496,504,512,520,528,536,544,552,560,568,576,584,592,600,608,616,624,632,640,648,656,664,672,680,688,696,704,712,720,728,736,744,752,760,768,776,784,792,800,808,816,824,832,840,848,856,864,872,880,888,896,904,912,920,928,936,944,952,960,968,976,984,992,1000,1008,1016,1024,2048,4096,8192], "\
+                                "\"cudagraph_mode\": \"FULL\"}"
                     }
                     if cudagraph_mode in modes:
-                        if cudagraph_mode != "MOE":
-                            args.append(f'--compilation-config {{"cudagraph_mode": "{modes[cudagraph_mode]}"}}')
-                        else:
-                            args.append(f'--compilation-config {modes[cudagraph_mode]}')
-
+                        with open(Path.cwd() / ".compile_config.yaml", "w") as f:
+                            f.write(f"compilation_config: '{modes[cudagraph_mode]}'\n")
+                        args.extend(["--config", str(Path.cwd() / ".compile_config.yaml")])
 
         return " ".join(args)
     
@@ -306,8 +304,9 @@ class VLLMBenchmark:
             "--env-file", str(Path.cwd() / self._env_file),
             "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self._env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
             "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
-            "-v", f"{os.environ.get('HOME')}:/workspace/",
+            "-v", f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
             "-v", f"{self._model_path}:{self._container_model_path}:ro",
+            "-w", f"{os.environ.get('HOME')}",
             self._vllm_image,
             "vllm", "serve",
             f"{self._container_model_path}",
@@ -468,9 +467,9 @@ class VLLMBenchmark:
             "--dataset-name", "random",
             "--ignore-eos",
             "--trust-remote-code",
-            f"--num-prompts={num_prompts}",
             f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
             f"--max-concurrency={client_count}",
+            f"--num-prompts={num_prompts}",
             f"--random-input-len={input_length}",
             f"--random-output-len={output_length}",
             "--tokenizer", f"{self._container_model_path}",
@@ -513,11 +512,7 @@ class VLLMBenchmark:
         if not self._test_plan_path:
             raise ValueError("Custom scope file must be provided for custom scope")
         
-        request_rates = []
-        num_iterations = []
-        client_counts = []
-        input_lengths = []
-        output_lengths = []
+        test_plans = []
 
         with open(self._test_plan_path) as f:
             for line in f:
@@ -525,20 +520,23 @@ class VLLMBenchmark:
                 if not line or line.startswith('#'):  # Skip empty lines and comments
                     continue
                 try:
-                    r, c, i, o, n = map(int, line.split())
-                    request_rates.append(r)
-                    client_counts.append(c)
-                    input_lengths.append(i)
-                    output_lengths.append(o)
-                    num_iterations.append(n)
+                    r, c, n, i, o = map(int, line.split())
+                    test_plan = {}
+                    test_plan['request_rate'] = r
+                    test_plan['client_count'] = c
+                    test_plan['num_iteration'] = n
+                    test_plan['input_length'] = i
+                    test_plan['output_length'] = o
+                    test_plans.append(test_plan)
+
                 except ValueError as e:
                     logger.warning(f"Skipping invalid line: {line} - {str(e)}")
                     continue
         
-        if not client_counts:  # Check if we have any valid combinations
+        if not test_plans:  # Check if we have any valid combinations
             raise ValueError("No valid test combinations found in custom scope file")
-        
-        return request_rates, client_counts, input_lengths, output_lengths, num_iterations
+
+        return test_plans
 
     def run_benchmark(self):
         """Run the full benchmark suite."""
@@ -580,24 +578,24 @@ class VLLMBenchmark:
             self._print_header()
 
         # Run benchmarks for all configurations
-        request_rates, num_iterations, client_counts, input_lengths, output_lengths = \
-            self._get_benchmark_scope()
-        for r, c, i, o, n in zip(request_rates, num_iterations, client_counts, input_lengths, output_lengths):
+        test_plans = self._get_benchmark_scope()
+        for test_plan in test_plans:
             try:
                 # use specified argument in cli
                 if self._request_rate is not None:
-                    r = self._request_rate
+                    test_plan["request_rate"] = self._request_rate
                 if self._num_iteration is not None:
-                    r = self._num_iteration
+                    test_plan["num_iteration"] = self._num_iteration
 
-                self.run_single_benchmark(r, c, i, o, n)
+                self.run_single_benchmark(**test_plan)
 
                 if self._is_dry_run:
-                    ans = input("Continue to generate benchmark command? (Y/n)")
-                    if ans.lower() != 'y' and ans.lower() != 'yes':
+                    ans = input("Continue to generate benchmark command? (Y/n) ")
+                    if ans.lower() == 'n' and ans.lower() == 'no':
                         break
             except subprocess.CalledProcessError as e:
-                logger.error(f"Benchmark failed for r{r}_n{n}_c{c}_i{i}_o{o}: {str(e)}")
+                logger.error(f"Benchmark command failed for \
+                             r{test_plan['request_rate']}_n{test_plan['num_iteration']}_c{test_plan['client_count']}_i{test_plan['input_length']}_o{test_plan['output_length']}: {str(e)}")
                 return
     
         # Cleanup container after this configuration
