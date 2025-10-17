@@ -206,6 +206,9 @@ class VLLMBenchmark:
 
     def _print_header(self):
         """Print the header line to console."""
+        if self._is_dry_run:
+            return
+
         # print header line to console
         headers_split = ''.join(self._headers).split(',')
         headers_line = [headers_split[0].ljust(30)]
@@ -284,11 +287,8 @@ class VLLMBenchmark:
         subprocess.run([self._container_runtime, "rm", "-f", self.container_name], 
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def start_server(self):
-        """Start the vLLM server in a Docker container."""
-        if not self._is_dry_run:
-            self._cleanup_container()
-        
+    def get_server_run_cmd(self) -> str:
+        """Construct the Docker run command for the vLLM server."""
         group_option="keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
         cmd = [
             self._container_runtime, "run", "-d",
@@ -317,8 +317,18 @@ class VLLMBenchmark:
             "--port", f"{self.vllm_port}",
             "--host", "0.0.0.0"
         ]
-        
+
+        # get extra vLLM args
         cmd.extend(self._get_vllm_args().split())
+
+        return cmd
+
+    def _start_server(self):
+        """Start the vLLM server in a Docker container."""
+        if not self._is_dry_run:
+            self._cleanup_container()
+        
+        cmd = self.get_server_run_cmd()
         
         if self._is_dry_run:
             logger.info("Dry run - Docker server command:")
@@ -504,7 +514,7 @@ class VLLMBenchmark:
         self._print_result(
             request_rate, num_iteration, client_count, input_length, output_length, metrics)
 
-    def _get_benchmark_scope(self):
+    def _get_test_plans(self):
         """Set benchmark parameters based on scope."""
         # load from test combinations in self._test_plan_path
         # combinations should be in the format of "request_rate client_count input_length output_length num_iteration"
@@ -538,48 +548,43 @@ class VLLMBenchmark:
 
         return test_plans
 
-    def run_benchmark(self):
-        """Run the full benchmark suite."""
-        if self._num_gpus == 0:
-            raise ValueError("No GPU is allocated")
-
-        # Start server for this configuration
-        self.start_server()
-        if not self._is_dry_run:
-            if not self._wait_for_server():
-                raise RuntimeError("Server failed to start")
+    def _warmup_server(self):
+        """Warmup the server before benchmarking."""
+        if self._is_no_warmup:
+            logger.info("Skipping warmup as per user request")
+            return
         
-            logger.info("Server is up and running")
-        
-        # Warmup
-        if not self._is_no_warmup and not self._is_dry_run:
-            warmup_cmd = [
-                self._container_runtime, "exec", self.container_name,
-                "vllm", "bench", "serve",
-                "--model", self._container_model_path,
-                "--backend", "vllm",
-                "--host", "localhost",
-                "--port", f"{self.vllm_port}",
-                "--dataset-name", "random",
-                "--ignore-eos",
-                "--trust-remote-code",
-                "--num-prompts", "16",
-                "--max-concurrency", "4",
-                "--random-input-len", "256",
-                "--random-output-len", "256",
-                "--tokenizer", self._container_model_path
-            ]
-            if not self._is_dry_run:
-                logger.info("Started vLLM server warmup. Will have small tests ahead of real benchmarks")
-                subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL)
-                logger.info("Warmup complete")
+        logger.info("Warming up the server...")
+        warmup_cmd = [
+            self._container_runtime, "exec", self.container_name,
+            "vllm", "bench", "serve",
+            "--model", f"{self._container_model_path}",
+            "--backend", "vllm",
+            "--host", "localhost",
+            f"--port={self.vllm_port}",
+            "--dataset-name", "random",
+            "--ignore-eos",
+            "--trust-remote-code",
+            f"--request-rate=10",
+            f"--max-concurrency=4",
+            f"--num-prompts=20",
+            f"--random-input-len=16",
+            f"--random-output-len=16",
+            "--tokenizer", f"{self._container_model_path}",
+            "--disable-tqdm"
+        ]
 
-        if not self._is_dry_run:
-            self._print_header()
+        if self._is_dry_run:
+            logger.info("Dry run - Warmup command:")
+            logger.info(" ".join(warmup_cmd))
+            return
 
-        # Run benchmarks for all configurations
-        test_plans = self._get_benchmark_scope()
-        for test_plan in test_plans:
+        subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        logger.info("Warmup complete.")
+
+    def _run_benchmark(self):
+        """Run benchmarks for all test plans."""
+        for test_plan in self._get_test_plans():
             try:
                 # use specified argument in cli
                 if self._request_rate is not None:
@@ -597,12 +602,29 @@ class VLLMBenchmark:
                 logger.error(f"Benchmark command failed for \
                              r{test_plan['request_rate']}_n{test_plan['num_iteration']}_c{test_plan['client_count']}_i{test_plan['input_length']}_o{test_plan['output_length']}: {str(e)}")
                 return
+
+    def run(self):
+        """Run the full benchmark suite."""
+        if self._num_gpus == 0:
+            raise ValueError("No GPU is allocated")
+
+        # Start server for this configuration
+        self._start_server()
+        if not self._is_dry_run:
+            if not self._wait_for_server():
+                raise RuntimeError("Server failed to start")
+        
+            logger.info("Server is up and running")
+        
+        self._warmup_server()
+        self._print_header()
+
+        self._run_benchmark()
     
         # Cleanup container after this configuration
         self._cleanup_container()
         if not self._is_dry_run:
             logger.info(f"Benchmarking complete. Results saved to {self.result_file}")
-
 
 def main():
     args = get_args()    
@@ -620,7 +642,8 @@ def main():
             no_warmup=args.no_warmup,
             dry_run=args.dry_run,
         )
-        benchmark.run_benchmark()
+
+        benchmark.run()
     except Exception as e:
         logger.error(f"Benchmark failed: {str(e)}")
         sys.exit(1)
