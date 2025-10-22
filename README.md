@@ -47,6 +47,5 @@ There are several test cases are pre-written in:
 1. Having test inferenceMax options:
     - https://github.com/InferenceMAX/InferenceMAX/blob/main/benchmarks/70b_fp4_mi355x_docker.sh
     - https://github.com/InferenceMAX/InferenceMAX/blob/main/benchmarks/70b_fp8_mi355x_docker.sh
-1. Benchmark with NVIDIA's benchmark 
 1. Benchmark with DP enablement
 1. Benchmark with PD disaggregation

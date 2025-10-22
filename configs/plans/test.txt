@@ -1,7 +1,0 @@
-# default operation test plan
-# request_rate - use 0 for inf
-# 
-# test parameters format: 
-# request_rate client_count num_iteration input_length output_length
-
-0 4 4 256 256

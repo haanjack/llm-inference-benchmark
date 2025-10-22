@@ -1,0 +1,8 @@
+test_scenarios:
+  - name: "1k input-1k output"
+    description: "Test focused on prefill performance with short output"
+    request_rate: 0  # inf
+    concurrency: [1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 192, 256]
+    input_length: 1024
+    output_length: 1024
+    num_iteration: 8
