@@ -441,13 +441,13 @@ class VLLMBenchmark:
     def _print_result(self, request_rate: int, num_iteration: int, concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
         result_line = (
-            f"{os.path.basename(self._env_file).ljust(16)}{self._num_gpus:>8d}\t"
-            f"{request_rate}\t{num_iteration:>8d}\t{self._max_num_seqs:>8d}\t{concurrency:>8d}\t{input_length:>8d}\t{output_length:>8d}\t{metrics['test_time']}\t"
-            f"{metrics['ttft_mean']:10.2f}\t{metrics['ttft_median']:10.2f}\t{metrics['ttft_p99']:10.2f}\t"
-            f"{metrics['tpot_mean']:10.2f}\t{metrics['tpot_median']:10.2f}\t{metrics['tpot_p99']:10.2f}\t"
-            f"{metrics['itl_mean']:10.2f}\t{metrics['itl_median']:10.2f}\t{metrics['itl_p99']:10.2f}\t"
-            f"{metrics['e2el_mean']:10.2f}\t{metrics['request_throughput']:10.2f}\t"
-            f"{metrics['output_token_throughput']:10.2f}\t{metrics['total_token_throughput']:10.2f}"
+            f"{os.path.basename(self._env_file).ljust(16)}{self._num_gpus:>6d}"
+            f"{request_rate}{num_iteration:>6d}{self._max_num_seqs:>6d}{concurrency:>6d}{input_length:>6d}{output_length:>6d}{metrics['test_time']:>6.2f}"
+            f"{metrics['ttft_mean']:10.2f}{metrics['ttft_median']:10.2f}{metrics['ttft_p99']:10.2f}"
+            f"{metrics['tpot_mean']:10.2f}{metrics['tpot_median']:10.2f}{metrics['tpot_p99']:10.2f}"
+            f"{metrics['itl_mean']:10.2f}{metrics['itl_median']:10.2f}{metrics['itl_p99']:10.2f}"
+            f"{metrics['e2el_mean']:10.2f}{metrics['request_throughput']:10.2f}"
+            f"{metrics['output_token_throughput']:10.2f}{metrics['total_token_throughput']:10.2f}"
         )
 
         logger.info(result_line)
