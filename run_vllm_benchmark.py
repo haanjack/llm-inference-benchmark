@@ -69,7 +69,9 @@ class VLLMBenchmark:
         # benchmark configuration
         self._env_file = env_file
         self._env_vars = self._load_env_file()
-        self._model_path = self._env_vars.get('MODEL_PATH', self._model_name) if model_path is None else model_path
+        self._model_path = model_path or self._env_vars.get('MODEL_PATH')
+        if not self._model_path:
+            raise ValueError("Model path must be provided via --model-path or MODEL_PATH in env file.")
         self._model_path = (Path().cwd() / self._model_path) if not Path(self._model_path).is_absolute() else Path(self._model_path)
         self._model_name = self._model_path.name
         self._container_model_path = Path(f"/models/{self._model_name}")
