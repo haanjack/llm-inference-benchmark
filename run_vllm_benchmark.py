@@ -336,6 +336,12 @@ class VLLMBenchmark:
         if self._is_dry_run:
             logger.info("Dry run - Docker server command:")
             logger.info(" ".join(cmd))
+
+            logger.info("config file content:")
+            with open(self.temp_compile_config_file, "r", encoding="utf-8") as f:
+                import yaml
+                compile_config = yaml.load(f, yaml.FullLoader)
+                logger.info(compile_config)
         else:
             logger.info("Started to initialize vllm server ...")
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
