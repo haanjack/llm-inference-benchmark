@@ -608,7 +608,7 @@ class VLLMBenchmark:
 
                 if self._is_dry_run:
                     ans = input("Continue to generate benchmark command? (Y/n) ")
-                    if ans.lower() == 'n' and ans.lower() == 'no':
+                    if ans.lower() == 'n' or ans.lower() == 'no':
                         break
             except subprocess.CalledProcessError as e:
                 logger.error(f"Benchmark command failed for \
@@ -639,9 +639,9 @@ class VLLMBenchmark:
             logger.info(f"Benchmarking complete. Results saved to {self.result_file}")
 
 def main():
-    args = get_args()
-
     try:
+        args = get_args()
+
         benchmark = VLLMBenchmark(
             env_file=args.env_file,
             model_path=args.model_path,
@@ -659,9 +659,10 @@ def main():
     except Exception as e:
         logger.error(f"Benchmark failed: {str(e)}")
 
-        if hasattr(benchmark, "temp_compile_config_file") and \
-            os.path.exists(benchmark.temp_compile_config_file):
-                os.remove(benchmark.temp_compile_config_file)
+        if "benchmark" in locals():
+            if hasattr(benchmark, "temp_compile_config_file") and \
+                os.path.exists(benchmark.temp_compile_config_file):
+                    os.remove(benchmark.temp_compile_config_file)
 
         sys.exit(1)
 
