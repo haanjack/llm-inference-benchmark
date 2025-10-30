@@ -15,19 +15,19 @@ python run_vllm_benchmark.py \
     --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
     --test-plan test \
     --gpu-devices 0
-``` 
+```
 
 ## Test Plan File
 This benchmark script follow test plan in `configs/plans/`. This plan file is custom format file that user can put comments with `#` prefix.
 
-The benchmark script loads this file via `--test-plan` by identifying file name. Then, it parses along this order: request_rate, clien_count, num_iteration, input_length, and output_length.
+The benchmark script loads this file via `--test-plan` by identifying file name. Then, it parses along this order: request_rate, client_count, num_iteration, input_length, and output_length.
 
 Following snippet show an example of this.
 ```
 # default operation test plan
 # request_rate - use 0 for inf
-# 
-# test parameters format: 
+#
+# test parameters format:
 # request_rate client_count num_iteration input_length output_length
 
 0 4 4 256 256

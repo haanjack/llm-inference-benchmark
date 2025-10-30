@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import re
 import requests
 import utils
+import tempfile
 
 # Configure logging
 logging.basicConfig(
@@ -32,8 +33,8 @@ def get_args():
     parser.add_argument('--vllm-image', help='vLLM Docker image')
     parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan YAML file in configs/benchmark_plans/ (without .yaml extension)')
-    parser.add_argument('--gpu-devices', help='Comma-separated GPU device IDs')
-    
+    parser.add_argument('--gpu-devices', default="0", help='Comma-separated GPU device IDs')
+
     # server control arguments
     parser.add_argument('--request-rate', type=int, default=None,
                        help='Request rate for the benchmark')
@@ -41,23 +42,23 @@ def get_args():
                         help='Max num sequence for vllm serving benchmark (a.k.a batch-size)')
     parser.add_argument('--num-iteration', type=int, default=None,
                         help='Number of batch iterations')
-    
+
     # test control
-    parser.add_argument('--no-warmup', action='store_true', 
+    parser.add_argument('--no-warmup', action='store_true',
                         help='no warmup at benchmark start')
-    parser.add_argument('--dry-run', action='store_true', 
+    parser.add_argument('--dry-run', action='store_true',
                        help='Show commands without executing them')
-    
+
     args = parser.parse_args()
 
     return args
 
 
 class VLLMBenchmark:
-    def __init__(self, 
-                 env_file: str = "baseline", 
-                 model_path: str = None, 
-                 vllm_image: str = None, 
+    def __init__(self,
+                 env_file: str = "baseline",
+                 model_path: str = None,
+                 vllm_image: str = None,
                  test_plan: str = "test",
                  gpu_devices: str = "0",
                  num_iteration: int = None,
@@ -65,7 +66,7 @@ class VLLMBenchmark:
                  max_num_seqs: int = None,
                  no_warmup: bool = False,
                  dry_run: bool = False):
-        
+
         # benchmark configuration
         self._env_file = env_file
         self._env_vars = self._load_env_file()
@@ -89,19 +90,19 @@ class VLLMBenchmark:
 
         self._is_no_warmup = no_warmup
         self._is_dry_run = dry_run
-        
+
         # Sanity Check
         if not self._test_plan_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find test plan: {self._test_plan_path}. Please check the plan name")
         if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model path {self._model_name}. Please check model path.")
-        
+
         # GPU configuration
         gpu_array = self._gpu_devices.split(',')
         if len(gpu_array) == 0:
             raise AssertionError("No GPU is specified. Please specify at least one GPU.")
         self._num_gpus = len(gpu_array)
-        
+
         # Result file headers
         self._headers = [
             "env,TP Size,",
@@ -113,13 +114,13 @@ class VLLMBenchmark:
             "Request Throughput (req/s),Output token throughput (tok/s),",
             "Total Token throughput (tok/s)"
         ]
-        
+
         # determine docker or podman
         self._container_runtime = "docker" if self._is_docker_available() else "podman"
 
         # Container name setup
         self._setup_container_name()
-        
+
         # Setup logging directories
         self._setup_logging_dirs()
 
@@ -135,7 +136,7 @@ class VLLMBenchmark:
         logger.info(f"Model Name: {self._model_name}")
         logger.info(f"vLLM docker image: {self._vllm_image}")
         logger.info(f"Benchmark plan: {self._test_plan}")
-        
+
         # Print the test plan YAML content
         logger.info("Benchmark test plan:")
         try:
@@ -155,7 +156,7 @@ class VLLMBenchmark:
             return subprocess.run(["docker", "images"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
         except FileNotFoundError:
             return False
-        
+
     def _load_env_file(self) -> Dict[str, str]:
         """Load environment variables from the specified env file."""
         env_file_path = Path.cwd() / self._env_file
@@ -163,7 +164,7 @@ class VLLMBenchmark:
 
         if not env_file_path.exists():
             raise FileNotFoundError(f"Environment file not found: {env_file_path}")
-            
+
         with open(env_file_path) as f:
             for line in f:
                 line = line.strip()
@@ -179,7 +180,7 @@ class VLLMBenchmark:
         """Setup container name based on environment and GPU configuration."""
         image_tag = self._vllm_image.split(':')[-1]
         slurm_job_id = os.environ.get("SLURM_JOB_ID", None)
-        
+
         self.container_name = ""
         if slurm_job_id:
             self.container_name = f"{slurm_job_id}-"
@@ -190,10 +191,10 @@ class VLLMBenchmark:
         image_tag = self._vllm_image.split(':')[-1]
         self.log_dir = Path("logs") / self._model_name / image_tag
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.server_log = self.log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{image_tag}-{os.path.basename(self._env_file)}-t{self._num_gpus}.txt"
         self.result_file = self.log_dir / "result_list.csv"
-        
+
         self.server_log.parent.mkdir(parents=True, exist_ok=True)
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -220,7 +221,6 @@ class VLLMBenchmark:
 
     def _get_vllm_args(self) -> str:
         """Construct VLLM arguments based on environment variables."""
-        # max_model_len = self.input_lengths[-1] + self.output_lengths[-1] + 256
         args = [
             "--kv-cache-dtype", f"{self._env_vars.get('KV_CACHE_DTYPE', '')}",
             "--gpu_memory_utilization", f"{self._env_vars.get('GPU_MEMORY_UTILIZATION', '0.9')}",
@@ -231,13 +231,13 @@ class VLLMBenchmark:
         ]
         if self._env_vars.get('QUANTIZATION', 'auto') != 'auto':
             args.extend(["--quantization", f"{self._env_vars.get('QUANTIZATION')}"])
-        
+
         # ROCM version handling
         # rocm version format should be like "6.4.0" or "7.0.1"
         # load rocm version from pytorch installed in container
         if not self._is_dry_run:
             container_rocm_version = subprocess.run(
-                [self._container_runtime, "run", "--rm", self._vllm_image, "python3", "-c", 
+                [self._container_runtime, "run", "--rm", self._vllm_image, "python3", "-c",
                     "import torch; print(torch.version.hip)"],
                 capture_output=True, text=True
             ).stdout.strip()
@@ -267,12 +267,13 @@ class VLLMBenchmark:
                                 "\"cudagraph_mode\": \"FULL\"}"
                     }
                     if cudagraph_mode in modes:
-                        with open(Path.cwd() / ".compile_config.yaml", "w") as f:
+                        with tempfile.NamedTemporaryFile(delete=False) as f:
                             f.write(f"compilation_config: '{modes[cudagraph_mode]}'\n")
-                        args.extend(["--config", str(Path.cwd() / ".compile_config.yaml")])
+                            args.extend(["--config", str(Path.cwd() / f.name)])
+                            self.temp_compile_config_file = f.name
 
         return " ".join(args)
-    
+
     def _cleanup_log_processes(self):
         """Terminate log collection processes if they exist."""
         if hasattr(self, 'log_processes'):
@@ -286,7 +287,7 @@ class VLLMBenchmark:
     def _cleanup_container(self, container_name):
         """Remove the Docker container if it exists."""
         self._cleanup_log_processes()
-        subprocess.run([self._container_runtime, "rm", "-f", container_name], 
+        subprocess.run([self._container_runtime, "rm", "-f", container_name],
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def get_server_run_cmd(self) -> str:
@@ -329,16 +330,16 @@ class VLLMBenchmark:
         """Start the vLLM server in a Docker container."""
         if not self._is_dry_run:
             self._cleanup_container(self.container_name)
-        
+
         cmd = self.get_server_run_cmd()
-        
+
         if self._is_dry_run:
             logger.info("Dry run - Docker server command:")
             logger.info(" ".join(cmd))
         else:
             logger.info("Started to initialize vllm server ...")
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
-        
+
         # Start log collection
         with open(self.server_log, 'a') as f:
             # Create two processes to capture both stdout and stderr
@@ -358,8 +359,8 @@ class VLLMBenchmark:
     def _wait_for_server(self, timeout: int = 2400) -> bool:
         """Wait for the server to become available."""
         start_time = time.time()
-        
-        while time.time() - start_time < timeout or utils.get_gfx_clk_value(self._gpu_devices[0]) > 1_000:
+
+        while time.time() - start_time < timeout or utils.get_gfx_clk_value(self._gpu_devices.split(',')[0]) > 1_000:
             try:
                 response = requests.get(f"http://localhost:{self.vllm_port}/v1/models")
                 return True
@@ -367,11 +368,11 @@ class VLLMBenchmark:
                 time.sleep(5)
         return False
 
-    def _check_existing_result(self, 
-                               request_rate: int, 
-                               concurrency: int, 
-                               input_length: int, 
-                               output_length: int, 
+    def _check_existing_result(self,
+                               request_rate: int,
+                               concurrency: int,
+                               input_length: int,
+                               output_length: int,
                                num_iteration: Optional[int]) -> bool:
         """Check if results already exist for this configuration."""
         if not self.result_file.exists():
@@ -389,7 +390,7 @@ class VLLMBenchmark:
                     if search_str in line:
                         line = line.strip()
                         s_line = [os.path.basename(line.split(',')[0]).ljust(16)]
-                        s_line += [h.rjust(8) for h in line.split(',')[1:self._metric_start_column_idx]] 
+                        s_line += [h.rjust(8) for h in line.split(',')[1:self._metric_start_column_idx]]
                         s_line += [h.rjust(10) for h in line.split(',')[self._metric_start_column_idx:]]
                         logger.info(f"{''.join(s_line)}")
         return search_result
@@ -415,12 +416,12 @@ class VLLMBenchmark:
             'output_token_throughput': r'Output token throughput \(tok/s\):\s*([\d.]+)',
             'total_token_throughput': r'Total Token throughput \(tok/s\):\s*([\d.]+)'
         }
-        
+
         log_content = log_file.read_text()
         for key, pattern in patterns.items():
             match = re.search(pattern, log_content)
             metrics[key] = float(match.group(1)) if match else 0.0
-            
+
         return metrics
 
     def _save_results(self, request_rate: int, num_iteration: int, concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
@@ -436,7 +437,7 @@ class VLLMBenchmark:
             f"{metrics['request_throughput']:.2f},"
             f"{metrics['output_token_throughput']:.2f},{metrics['total_token_throughput']:.2f}\n"
         )
-        
+
         with open(self.result_file, 'a') as f:
             f.write(result_line)
 
@@ -454,14 +455,14 @@ class VLLMBenchmark:
 
         logger.info(result_line)
 
-    def run_single_benchmark(self, 
-                             request_rate: int, 
-                             concurrency: int, 
-                             input_length: int, 
-                             output_length: int, 
+    def run_single_benchmark(self,
+                             request_rate: int,
+                             concurrency: int,
+                             input_length: int,
+                             output_length: int,
                              num_iteration: Optional[int] = None):
         """Run a single benchmark iteration."""
-        
+
         # if required iteration is not given, use default value
         # which enables to iterate following benchmark plan
         num_iteration = int(self._num_iteration if num_iteration is None else num_iteration)
@@ -496,7 +497,7 @@ class VLLMBenchmark:
             logger.info(f"Dry run - Benchmark command for r{request_rate}_n{num_iteration}_c{concurrency}_i{input_length}_o{output_length}")
             logger.info(" ".join(cmd))
             return
-        
+
         log_file = self.log_dir / f"vllm_tp{self._env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{concurrency}.log"
         with open(log_file, 'w') as f:
             f.write(f"=== Benchmark: request_rate={request_rate}, num_iteration={num_iteration}, concurrency={concurrency}, input_len={input_length}, output_len={output_length} ===\n")
@@ -519,10 +520,10 @@ class VLLMBenchmark:
         yaml_path = Path("configs/benchmark_plans") / f"{self._test_plan}.yaml"
         if not yaml_path.exists():
             raise FileNotFoundError(f"Test plan not found: {yaml_path}")
-        
+
         with open(yaml_path) as f:
             config = yaml.safe_load(f)
-        
+
         test_plans = []
         for scenario in config.get('test_scenarios', []):
             # Convert all parameters to lists if they're not already
@@ -554,7 +555,7 @@ class VLLMBenchmark:
 
         if not test_plans:
             raise ValueError("No test scenarios found in test plan")
-            
+
         return test_plans
 
     def _warmup_server(self):
@@ -562,7 +563,7 @@ class VLLMBenchmark:
         if self._is_no_warmup:
             logger.info("Skipping warmup as per user request")
             return
-        
+
         logger.info("Warming up the server...")
         warmup_cmd = [
             self._container_runtime, "exec", self.container_name,
@@ -624,22 +625,22 @@ class VLLMBenchmark:
         if not self._is_dry_run:
             if not self._wait_for_server():
                 raise RuntimeError("Server failed to start")
-        
+
             logger.info("Server is up and running")
-        
+
         self._warmup_server()
         self._print_header()
 
         self._run_vllm_benchmark()
-    
+
         # Cleanup container after this configuration
         self._cleanup_container(self.container_name)
         if not self._is_dry_run:
             logger.info(f"Benchmarking complete. Results saved to {self.result_file}")
 
 def main():
-    args = get_args()    
-    
+    args = get_args()
+
     try:
         benchmark = VLLMBenchmark(
             env_file=args.env_file,
@@ -657,6 +658,10 @@ def main():
         benchmark.run()
     except Exception as e:
         logger.error(f"Benchmark failed: {str(e)}")
+
+        if os.path.exists(benchmark.temp_compile_config_file):
+            os.remove(benchmark.temp_compile_config_file)
+
         sys.exit(1)
 
 if __name__ == "__main__":
