@@ -123,12 +123,24 @@ class VLLMBenchmark:
 
         # Setup logging directories
         self._setup_logging_dirs()
+        self._cache_dir()
 
         # VLLM port setup
         self.vllm_port = 23400 + int(gpu_array[0]) if gpu_array else 23400
 
         self._metric_start_column_idx = 9
         self._print_benchmark_info()
+
+    def _cache_dir(self):
+        """Configure vllm cache directory which to reduce compilation overhead."""
+        self._host_cache_dir = Path.cwd() / "vllm_cache"
+        self._host_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        self._aiter_cache_dir = self._host_cache_dir / "aiter"
+        self._aiter_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        self._compile_cache_dir = self._host_cache_dir / "compile_config"
+        self._compile_cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _print_benchmark_info(self):
         """Print benchmark configuration and test plan information."""
@@ -159,11 +171,11 @@ class VLLMBenchmark:
 
     def _load_env_file(self) -> Dict[str, str]:
         """Load environment variables from the specified env file."""
-        env_file_path = Path.cwd() / self._env_file
+        env_file_path = Path.cwd() / self._env_file # env only accepts relative path
         env_vars = {}
 
         if not env_file_path.exists():
-            raise FileNotFoundError(f"Environment file not found: {env_file_path}")
+            raise FileNotFoundError(f"Environment file not found: {env_file_path}. It only accepts relative path from current directory")
 
         with open(env_file_path) as f:
             for line in f:
@@ -192,11 +204,13 @@ class VLLMBenchmark:
         self.log_dir = Path("logs") / self._model_name / image_tag
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        self.server_log = self.log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{image_tag}-{os.path.basename(self._env_file)}-t{self._num_gpus}.txt"
         self.result_file = self.log_dir / "result_list.csv"
-
-        self.server_log.parent.mkdir(parents=True, exist_ok=True)
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
+
+        self.server_log = self.log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{image_tag}-{os.path.basename(self._env_file)}-t{self._num_gpus}.txt"
+        self.server_log.parent.mkdir(parents=True, exist_ok=True)
+
+        self._env_tag = "-".join(Path(os.path.basename(self._env_file)).parts)
 
         # Initialize result file if it doesn't exist
         if not self.result_file.exists():
@@ -267,10 +281,14 @@ class VLLMBenchmark:
                                 "\"cudagraph_mode\": \"FULL\"}"
                     }
                     if cudagraph_mode in modes:
-                        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as f:
+                        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml",
+                                                         dir=self._compile_cache_dir,
+                                                         encoding="utf-8", delete=False) as f:
                             f.write(f"compilation_config: '{modes[cudagraph_mode]}'\n")
-                            args.extend(["--config", str(Path.cwd() / f.name)])
+                            args.extend(["--config", str(Path("root") / ".cache" / "compile_config" / f.name)])
                             self.temp_compile_config_file = f.name
+
+                            print(str(Path("root") / ".cache" / "compile_config" / f.name))
 
         return " ".join(args)
 
@@ -309,6 +327,9 @@ class VLLMBenchmark:
             "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
             "-v", f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
             "-v", f"{self._model_path}:{self._container_model_path}:ro",
+            "-v", f"{self._host_cache_dir}:/root/.cache",
+            "-v", f"{self._compile_cache_dir}:/root/.cache/compile_config",
+            "-v", f"{self._aiter_cache_dir}:/root/.aiter",
             "-w", f"{os.environ.get('HOME')}",
             self._vllm_image,
             "vllm", "serve",
@@ -366,7 +387,7 @@ class VLLMBenchmark:
         """Wait for the server to become available."""
         start_time = time.time()
 
-        while time.time() - start_time < timeout or utils.get_gfx_clk_value(self._gpu_devices.split(',')[0]) > 1_000:
+        while time.time() - start_time < timeout:
             try:
                 response = requests.get(f"http://localhost:{self.vllm_port}/v1/models")
                 return True
@@ -434,7 +455,7 @@ class VLLMBenchmark:
 
         """Save benchmark results to the result file."""
         result_line = (
-            f"{self._env_file},{self._num_gpus},"
+            f"{os.path.basename(self._env_file)},{self._num_gpus},"
             f"{request_rate},{num_iteration},{self._max_num_seqs},{concurrency},{input_length},{output_length},{metrics['test_time']},"
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
@@ -450,7 +471,7 @@ class VLLMBenchmark:
     def _print_result(self, request_rate: int, num_iteration: int, concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
         result_line = (
-            f"{os.path.basename(self._env_file).ljust(16)}{self._num_gpus:>6d}"
+            f"{os.path.basename(self._env_file).ljust(16)}\t{self._num_gpus:>6d}"
             f"{request_rate}{num_iteration:>6d}{self._max_num_seqs:>6d}{concurrency:>6d}{input_length:>6d}{output_length:>6d}{metrics['test_time']:>6.2f}"
             f"{metrics['ttft_mean']:10.2f}{metrics['ttft_median']:10.2f}{metrics['ttft_p99']:10.2f}"
             f"{metrics['tpot_mean']:10.2f}{metrics['tpot_median']:10.2f}{metrics['tpot_p99']:10.2f}"
@@ -504,7 +525,9 @@ class VLLMBenchmark:
             logger.info(" ".join(cmd))
             return
 
-        log_file = self.log_dir / f"vllm_tp{self._env_vars.get('TENSOR_PARALLEL_SIZE', '1')}_r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{concurrency}.log"
+        # TODO: env directory will have more parallelism size info
+        log_file = self.log_dir / f"{self._env_tag}_tp{self._env_vars.get('TENSOR_PARALLEL_SIZE', '1')}" / f"r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{concurrency}.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
         with open(log_file, 'w') as f:
             f.write(f"=== Benchmark: request_rate={request_rate}, num_iteration={num_iteration}, concurrency={concurrency}, input_len={input_length}, output_len={output_length} ===\n")
 
@@ -582,8 +605,8 @@ class VLLMBenchmark:
             "--ignore-eos",
             "--trust-remote-code",
             f"--request-rate=10",
-            f"--max-concurrency=4",
-            f"--num-prompts=20",
+            f"--max-concurrency=1",
+            f"--num-prompts=4",
             f"--random-input-len=16",
             f"--random-output-len=16",
             "--tokenizer", f"{self._container_model_path}",
