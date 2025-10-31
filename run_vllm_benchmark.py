@@ -387,12 +387,32 @@ class VLLMBenchmark:
         """Wait for the server to become available."""
         start_time = time.time()
 
-        while time.time() - start_time < timeout:
+        while True:
+            gpu_active = utils.get_gfx_clk_value(int(self._gpu_devices.split(',')[0])) > utils.GFX_CLK_IDLE_THRESHOLD
+
+            # check if the server is ready
             try:
                 response = requests.get(f"http://localhost:{self.vllm_port}/v1/models")
-                return True
+                if response.status_code == 200:
+                    model_info = response.json()
+                    if model_info:
+                        return True
             except requests.exceptions.RequestException:
-                time.sleep(5)
+                pass
+
+            # check timeout
+            if time.time() - start_time > timeout:
+                if not gpu_active:
+                    logger.error("vLLM server GPU is idle. Server failed to start.")
+                    return False
+                else:
+                    logger.info("vLLM server is still starting...")
+                    time.sleep(30)
+                    continue
+
+            time.sleep(5)
+
+        logger.error("Timeout waiting for vLLM server to start.")
         return False
 
     def _check_existing_result(self,
@@ -640,8 +660,9 @@ class VLLMBenchmark:
                     if ans.lower() == 'n' or ans.lower() == 'no':
                         break
             except subprocess.CalledProcessError as e:
-                logger.error(f"Benchmark command failed for \
-                             r{test_plan['request_rate']}_n{test_plan['num_iteration']}_c{test_plan['concurrency']}_i{test_plan['input_length']}_o{test_plan['output_length']}: {str(e)}")
+                logger.error(f"Single benchmark failed for \
+                             r{test_plan['request_rate']}_n{test_plan['num_iteration']}_c{test_plan['concurrency']}_i{test_plan['input_length']}_o{test_plan['output_length']}")
+                logger.error(f"{str(e)}")
                 return
 
     def run(self):

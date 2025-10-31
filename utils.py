@@ -2,7 +2,11 @@ import subprocess
 import json
 from typing import Optional, Union
 
-def get_gfx_clk_value(gpu_index: int = 0, amd_smi_path: str = "amd-smi", timeout: float = 5.0) -> Optional[Union[int, float]]:
+GFX_CLK_IDLE_THRESHOLD = 1_000 # Example threshold value in MHz
+
+def get_gfx_clk_value(gpu_index: int = 0, 
+                      amd_smi_path: str = "amd-smi", 
+                      timeout: float = 5.0) -> int:
     """
     Run 'amd-smi monitor -g <gpu_index> --gfx --json' and return only the gfx_clk value.
 
@@ -26,7 +30,7 @@ def get_gfx_clk_value(gpu_index: int = 0, amd_smi_path: str = "amd-smi", timeout
         )
         combined = (proc.stdout or "") + (proc.stderr or "")
         if not combined:
-            return None
+            return 0
 
         # Try to extract a JSON array block first, then a JSON object block if needed.
         def extract_json_block(text: str) -> Optional[str]:
@@ -42,11 +46,11 @@ def get_gfx_clk_value(gpu_index: int = 0, amd_smi_path: str = "amd-smi", timeout
             if start_curly != -1 and end_curly != -1 and end_curly > start_curly:
                 return text[start_curly:end_curly + 1].strip()
 
-            return None
+            return 0
 
         json_text = extract_json_block(combined)
         if not json_text:
-            return None
+            return 0
 
         data = json.loads(json_text)
 
@@ -54,12 +58,12 @@ def get_gfx_clk_value(gpu_index: int = 0, amd_smi_path: str = "amd-smi", timeout
         if isinstance(data, list):
             # Assume the first entry contains the metrics for the specified GPU
             if not data:
-                return None
+                return 0
             entry = data[0]
         elif isinstance(data, dict):
             entry = data
         else:
-            return None
+            return 0
 
         gfx_clk = entry.get("gfx_clk")
         if isinstance(gfx_clk, dict):
@@ -73,12 +77,12 @@ def get_gfx_clk_value(gpu_index: int = 0, amd_smi_path: str = "amd-smi", timeout
                 if k.lower() == "gfx_clk" and isinstance(v, (int, float)):
                     return v
 
-        return None
+        return 0
 
     except (json.JSONDecodeError, subprocess.TimeoutExpired, FileNotFoundError):
-        return None
+        return 0
     except Exception:
-        return None
+        return 0
 
 
 if __name__ == "__main__":
