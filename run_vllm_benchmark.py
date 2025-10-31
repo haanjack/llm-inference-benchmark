@@ -288,8 +288,6 @@ class VLLMBenchmark:
                             args.extend(["--config", str(Path("root") / ".cache" / "compile_config" / f.name)])
                             self.temp_compile_config_file = f.name
 
-                            print(str(Path("root") / ".cache" / "compile_config" / f.name))
-
         return " ".join(args)
 
     def _cleanup_log_processes(self):
