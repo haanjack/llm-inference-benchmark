@@ -318,7 +318,7 @@ class VLLMBenchmark:
             "--network=host",
             "--cap-add=CAP_SYS_ADMIN",
             "--cap-add=SYS_PTRACE",
-            "--shm-size=8g",
+            "--shm-size=16g",
             "--security-opt", "seccomp=unconfined",
             "--env-file", str(Path.cwd() / self._env_file),
             "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self._env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
