@@ -79,8 +79,29 @@ To ease various testing, this script provides `--dry-run` mode. With this option
 Please mind that having full support vLLM command is not this script's objective.
 
 
-### Profile
-TBU
+### Profile (TBU)
+For ease of analysis performance, this project provides `--profile` argument. Then it exports vllm server profile traces into `./profile` directory.
+
+This repo also has a copy of vllm profile tool - `layerwise profiling`.
+
+```
+python examples/offline_inference/profiling.py \\
+    --model neuralmagic/Meta-Llama-3.1-8B-Instruct-FP8 --batch-size 4 \\
+    --prompt-len 512 --max-num-batched-tokens 8196 --json Llama31-8b-FP8 \\
+    --enforce-eager run_num_steps -n 2
+```
+
+then you can use various tools to analyze the json output terminal ascii tables:
+```
+python tools/profiler/print_layerwise_table.py \\
+    --json-trace Llama31-8b-FP8.json --phase prefill --table summary
+```
+or create matplotlib stacked bar charts:
+```
+python tools/profiler/visualize_layerwise_profile.py \\
+    --json-trace Llama31-8b-FP8.json \\
+    --output-directory profile_breakdown --plot-metric pct_cuda_time
+```
 
 # TODO
 1. Having test inferenceMax options:
