@@ -133,7 +133,7 @@ class VLLMBenchmark:
 
     def _cache_dir(self):
         """Configure vllm cache directory which to reduce compilation overhead."""
-        self._host_cache_dir = Path.cwd() / "vllm_cache"
+        self._host_cache_dir = Path.cwd() / "vllm_cache" / self._exp_tag
         self._host_cache_dir.mkdir(parents=True, exist_ok=True)
 
         self._aiter_cache_dir = self._host_cache_dir / "aiter"
@@ -201,16 +201,17 @@ class VLLMBenchmark:
     def _setup_logging_dirs(self):
         """Setup logging directories for the benchmark."""
         image_tag = self._vllm_image.split(':')[-1]
-        self.log_dir = Path("logs") / self._model_name / image_tag
-        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self._log_dir = Path("logs") / self._model_name / image_tag
+        self._log_dir.mkdir(parents=True, exist_ok=True)
 
-        self.result_file = self.log_dir / "result_list.csv"
+        self.result_file = self._log_dir / "result_list.csv"
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
 
-        self.server_log = self.log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{image_tag}-{os.path.basename(self._env_file)}-t{self._num_gpus}.txt"
+        self.server_log = self._log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{image_tag}-{os.path.basename(self._env_file)}-t{self._num_gpus}.txt"
         self.server_log.parent.mkdir(parents=True, exist_ok=True)
 
         self._env_tag = "-".join(Path(os.path.basename(self._env_file)).parts)
+        self._exp_tag = f"{self._env_tag}_tp{self._env_vars.get('TENSOR_PARALLEL_SIZE', '1')}"
 
         # Initialize result file if it doesn't exist
         if not self.result_file.exists():
@@ -544,7 +545,7 @@ class VLLMBenchmark:
             return
 
         # TODO: env directory will have more parallelism size info
-        log_file = self.log_dir / f"{self._env_tag}_tp{self._env_vars.get('TENSOR_PARALLEL_SIZE', '1')}" / f"r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{concurrency}.log"
+        log_file = self._log_dir / self._exp_tag / f"r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{concurrency}.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with open(log_file, 'w') as f:
             f.write(f"=== Benchmark: request_rate={request_rate}, num_iteration={num_iteration}, concurrency={concurrency}, input_len={input_length}, output_len={output_length} ===\n")
