@@ -77,6 +77,11 @@ def get_gfx_clk_value(gpu_index: int = 0,
                 if k.lower() == "gfx_clk" and isinstance(v, (int, float)):
                     return v
 
+        # partitioned GPU does not report gfx_clk, try to get lead GPU's gfx_clk
+        if gfx_clk == "N/A" and entry.get("xcp") > 0:
+            lead_gpu_id = int(entry.get("gpu")) - int(entry.get("xcp"))
+            return get_gfx_clk_value(lead_gpu_id)
+
         return 0
 
     except (json.JSONDecodeError, subprocess.TimeoutExpired, FileNotFoundError):
