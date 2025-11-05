@@ -99,8 +99,64 @@ There are several test cases in `configs/benchmark_plans`.
 
 ## Benchmark Result
 
+For all the benchmark results are parsed from each benchmark log and consolidated in `logs/<model name>/<docker-tag>/result_list.csv` file.
+
+This is an exmaple of the `result_list.csv` file.
+```csv
+env,TP Size,Request Rate,Num. Iter,Client Count,MaxNumSeqs,Input Length,Output Length,Test Time,Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),Mean ITL (ms),Median ITL (ms),P99 ITL (ms),Mean E2EL (ms),Median E2EL (ms),P99 E2EL (ms),Request Throughput (req/s),Output token throughput (tok/s),Total Token throughput (tok/s)
+default,1,0,4,256,4,512,128,2.32,31.75,35.30,36.81,4.30,4.28,4.39,4.30,4.27,4.75,577.79,578.79,580.43,6.91,884.27,4414.46
+default,1,0,4,256,8,512,128,2.48,35.05,33.35,51.13,4.59,4.57,4.74,4.59,4.50,5.70,617.41,619.06,631.81,12.91,1652.74,8249.56
+```
+
 ### Result Logs
-All the benchmark results are stored in `logs/` directory following the model name and docker images tags. For instance, single benchmark's results are stored in `/logs/<model name>/<docker-tag>` directory.
+All the benchmark logs are stored in `logs/<model name>/<docker-tag>` directory following the model name and docker images tags. And single benchmark logs are stored in `<model-config>-t<tp size>/<run-configs>`.
+
+## Example
+Following command is an example of benchmarks.
+
+### LLaMA3.3 70B
+
+```bash
+python3 run_vllm_benchmark.py \
+  --model-config=configs/models/llama.yaml \
+  --model-path ~/models/amd/Llama-3.3-70B-Instruct-FP8-KV \
+  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --test-plan test \
+  --gpu-devices=0
+```
+
+### GPT-OSS-120B
+
+```bash
+python3 run_vllm_benchmark.py \
+  --model-config=configs/models/gpt-oss.yaml \
+  --model-path ~/models/openai/gpt-oss-120b \
+  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --test-plan test \
+  --gpu-devices=0
+```
+
+### DeepSeek R1
+
+```bash
+python3 run_vllm_benchmark.py \
+  --model-config configs/models/deepseek.yaml \
+  --model-path ~/models/deepseek-ai/DeepSeek-R1-0528 \
+  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --test-plan test \
+  --gpu-devices=0,1,2,3,4,5,6,7
+```
+
+### Qwen3 30B A3B FP8
+
+```bash
+python run_vllm_benchmark.py \
+  --env-file configs/models/default.yaml \
+  --model-path ~/models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
+  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --test-plan test \
+  --gpu-devices 0
+```
 
 
 ## Other Features
