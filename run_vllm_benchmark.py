@@ -36,6 +36,7 @@ def get_args():
     parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan YAML file in configs/benchmark_plans/ (without .yaml extension)')
     parser.add_argument('--gpu-devices', default="0", help='Comma-separated GPU device IDs')
+    parser.add_argument('--arch', default=None, help='Target GPU architecture for model config')
 
     # test control
     parser.add_argument('--no-warmup', action='store_true',
@@ -56,6 +57,7 @@ class VLLMBenchmark:
                  model_config: str = None,
                  test_plan: str = "test",
                  gpu_devices: str = "0",
+                 arch: str = None,
                  no_warmup: bool = False,
                  dry_run: bool = False):
 
@@ -64,6 +66,7 @@ class VLLMBenchmark:
         self._env_vars = {}
         self._vllm_args = {}
         self._compilation_config = {}
+        self._arch = arch
         self._model_config  = model_config
         self._load_model_config()
 
@@ -171,7 +174,18 @@ class VLLMBenchmark:
             # Parse the YAML content
             model_config = yaml.safe_load(config_content)
     
-        self._env_vars = model_config.get('envs', {})
+        env_vars = model_config.get('envs', {})
+        self._env_vars.update(env_vars)
+
+        # apply arch specific params
+        if self._arch:
+            arch_params = model_config.get('arch_specific_params', {})
+            if self._arch in arch_params:
+                self._env_vars.update(arch_params.get(self._arch, {}))
+            else:
+                logger.warning(f"Architecture '{self._arch}' not found in model config arch_specific_params. Skipping architecture-specific environment variables.")
+        else:
+            logger.info("No architecture specified. Skipping architecture-specific environment variables.")
 
         vllm_server_args = model_config.get('vllm_server_args', {})
         self._vllm_args.update(vllm_server_args)
@@ -284,6 +298,12 @@ class VLLMBenchmark:
 
         # set additional env variables for model config
         for key, value in self._env_vars.items():
+            if key == "arch_specific_params":
+                arch_params = json.dumps(value, separators=(',', ':'))
+                for
+                cmd.extend(["-e", f"{key}={arch_params}"])
+                continue
+
             cmd.extend(["-e", f"{key}={value}"])
 
         # set volume mounts and run server command
@@ -659,6 +679,7 @@ def main():
             vllm_image=args.vllm_image,
             test_plan=args.test_plan,
             gpu_devices=args.gpu_devices,
+            arch=args.arch,
             no_warmup=args.no_warmup,
             dry_run=args.dry_run
         )
