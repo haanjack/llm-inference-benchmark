@@ -90,12 +90,13 @@ test_scenarios:
 `batch_size` means vllm engine's batch size and it is `max-num-seqs` in vllm.
 
 There are several test cases in `configs/benchmark_plans`.
- - test
- - sample
- - decode_heavy
- - prefill_heavy
- - hybrid
- - throughput_control
+ - [test](./configs/benchmark_plans/test.yaml)
+ - [sample](./configs/benchmark_plans/sample.yaml)
+ - [decode_heavy](./configs/benchmark_plans/decode_heavy.yaml)
+ - [prefill_heavy](./configs/benchmark_plans/prefill_heavy.yaml)
+ - [hybrid](./configs/benchmark_plans/hybrid.yaml)
+ - [throughput_control](./configs/benchmark_plans/throughput_control.yaml)
+
 
 ## Benchmark Result
 
