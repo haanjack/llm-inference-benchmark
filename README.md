@@ -25,17 +25,45 @@ python run_vllm_benchmark.py \
     --gpu-devices 0
 ```
 
-There are several interesting argument: `env-file` and `test-plan`. These are the purpose of this benchmark script. "What is best setting?" and "I just want to roll-out the tests". Check each section for more details.
+There are several interesting argument: `model-config` and `test-plan`. These are the purpose of this benchmark script. "What is best setting?" and "I just want to roll-out the tests". Check each section for more details.
 
 ### Environment File
-The vLLM operation can be controled with environment variables. This benchmark script provides to custom the environment variables when it is executed.
+Each model has optimal configuration and settings. To support this divergency, this benchmark script provide individual model config yaml file.
+
+Following snippet shows the basic format of the model config file.
+```yaml
+# Default model configuration
+
+env:
+  # Example environment variables
+  # HUGGING_FACE_HUB_TOKEN: "your_token_here"
+  VLLM_ROCM_USE_AITER: 1
+
+vllm_server_args:
+  # Arguments for the vLLM server
+  quantization: fp8
+  kv-cache-dtype: auto
+  
+  # Add other vLLM server arguments here
+  # example:
+  # max_model_len: 1024
+  # gpu-memory-utilization: 0.95
+  # max-num-batched-token: 8192
+  # swap-space: 16
+  # block-size: 64
+  # no-enable-prefix-caching: true
+  # async-scheduling: true
+
+compilation_config:
+  cudagraph_mode: "FULL_AND_PIECEWISE"
+```
 
 For more available environment variables, please checke the following documents.
 - [vLLM environment variables](https://docs.vllm.ai/en/stable/configuration/env_vars.html)
+- [AMD vLLM V1 performance optimization](https://rocm.docs.amd.com/en/latest/how-to/rocm-for-ai/inference-optimization/vllm-optimization.html)
 - [AITER switches](https://rocm.docs.amd.com/en/develop/how-to/rocm-for-ai/inference-optimization/vllm-optimization.html#aiter-ai-tensor-engine-for-rocm-switches)
 
-
-This benchmark script provides some predefined sets for model architecture type and precision. Everyting is experimental, so fill free to test and change its settings.
+vLLM server arguments can be changed following the purpose of test. If you want optimize for TTFT, you need to test smaller `max-num-batched-token < 8192`. Or it is recommended to test 32-64k for low ITL or 64k+ for max throughput. But this can be vary depending on the model size and context length. Fill free to change and test your own.
 
 I tries to put most of vLLM controls with this file while keeping the script argument is simple. Because this file can work as arguments set. The benchmark result will record this file and you can seperate the result among the all the mixed test results accordingly.
 
@@ -56,9 +84,12 @@ test_scenarios:
     input_length: 1024
     output_length: 1024
     num_iteration: 8
+    batch_size: 256
 ```
 
-There are several test cases are pre-written in:
+`batch_size` means vllm engine's batch size and it is `max-num-seqs` in vllm.
+
+There are several test cases in `configs/benchmark_plans`.
  - test
  - sample
  - decode_heavy
@@ -108,6 +139,5 @@ python tools/profiler/visualize_layerwise_profile.py \\
     - https://github.com/InferenceMAX/InferenceMAX/blob/main/benchmarks/70b_fp4_mi355x_docker.sh
     - https://github.com/InferenceMAX/InferenceMAX/blob/main/benchmarks/70b_fp8_mi355x_docker.sh
 1. Benchmark with other parallelism
-1. 
 1. Writing graph drawing code
 1. Benchmark with PD disaggregation

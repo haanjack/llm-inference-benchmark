@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Host Environments
+SAFETENSORS_FAST_GPU=1
+OMP_NUM_THREADS=128
+NCCL_MIN_NCHANNELS=112
+HIP_FORCE_DEV_KERNARG=1
+
+# Model Stored Path
+HF_HOME=${HOME}/models

@@ -1,0 +1,24 @@
+# Default model configuration
+
+env:
+  # Example environment variables
+  # HUGGING_FACE_HUB_TOKEN: "your_token_here"
+  VLLM_ROCM_USE_AITER: 1
+
+vllm_server_args:
+  # Arguments for the vLLM server
+  quantization: fp8
+  kv-cache-dtype: auto
+  
+  # Add other vLLM server arguments here
+  # example:
+  # max_model_len: 1024
+  # gpu-memory-utilization: 0.95
+  # max-num-batched-token: 8192
+  # swap-space: 16
+  # block-size: 64
+  # no-enable-prefix-caching: true
+  # async-scheduling: true
+
+compilation_config:
+  cudagraph_mode: "FULL_AND_PIECEWISE"

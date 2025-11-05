@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import datetime
+import json
 import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -28,20 +29,13 @@ def get_args():
     parser = argparse.ArgumentParser(description='Run vLLM benchmarks')
 
     # benchmark configuration
-    parser.add_argument('--env-file', default='baseline', help='Environment file name')
-    parser.add_argument('--model-path', help='Model checkpoint path')
+    parser.add_argument('--env-file', default="configs/envs/common", help='Environment file name')
     parser.add_argument('--vllm-image', help='vLLM Docker image')
+    parser.add_argument('--model-path', help='Model checkpoint path')
+    parser.add_argument('--model-config', help='Model config file path')
     parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan YAML file in configs/benchmark_plans/ (without .yaml extension)')
     parser.add_argument('--gpu-devices', default="0", help='Comma-separated GPU device IDs')
-
-    # server control arguments
-    parser.add_argument('--request-rate', type=int, default=None,
-                       help='Request rate for the benchmark')
-    parser.add_argument('--max-num-seqs', type=int, default=None,
-                        help='Max num sequence for vllm serving benchmark (a.k.a batch-size)')
-    parser.add_argument('--num-iteration', type=int, default=None,
-                        help='Number of batch iterations')
 
     # test control
     parser.add_argument('--no-warmup', action='store_true',
@@ -56,37 +50,31 @@ def get_args():
 
 class VLLMBenchmark:
     def __init__(self,
-                 env_file: str = "baseline",
-                 model_path: str = None,
+                 env_file: str = None,
                  vllm_image: str = None,
+                 model_path: str = None,
+                 model_config: str = None,
                  test_plan: str = "test",
                  gpu_devices: str = "0",
-                 num_iteration: int = None,
-                 request_rate: int = None,
-                 max_num_seqs: int = None,
                  no_warmup: bool = False,
                  dry_run: bool = False):
 
         # benchmark configuration
-        self._env_file = env_file
-        self._env_vars = self._load_env_file()
-        self._model_path = model_path or self._env_vars.get('MODEL_PATH')
-        if not self._model_path:
-            raise ValueError("Model path must be provided via --model-path or MODEL_PATH in env file.")
+        self._common_env_file = env_file
+        self._env_vars = {}
+        self._vllm_args = {}
+        self._compilation_config = {}
+        self._model_config  = model_config
+        self._load_model_config()
+
+        self._model_path = model_path
         self._model_path = (Path().cwd() / self._model_path) if not Path(self._model_path).is_absolute() else Path(self._model_path)
         self._model_name = self._model_path.name
         self._container_model_path = Path(f"/models/{self._model_name}")
-        self._vllm_image = vllm_image or self._env_vars.get("VLLM_IMAGE", "docker.io/rocm/vllm:latest")
+        self._vllm_image = vllm_image
         self._test_plan = test_plan
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._gpu_devices = gpu_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
-
-        # Set benchmark parameters based on scope
-        self._num_iteration = int(self._env_vars.get('NUM_ITERATION', 1)) if num_iteration is None else num_iteration
-        self._request_rate = self._env_vars.get('REQUEST_RATE', 1) if request_rate is None else request_rate
-        if self._request_rate == 'inf':
-            self._request_rate = 0
-        self._max_num_seqs = int(self._env_vars.get('MAX_NUM_SEQS', '256')) if max_num_seqs is None else max_num_seqs
 
         self._is_no_warmup = no_warmup
         self._is_dry_run = dry_run
@@ -101,7 +89,10 @@ class VLLMBenchmark:
         gpu_array = self._gpu_devices.split(',')
         if len(gpu_array) == 0:
             raise AssertionError("No GPU is specified. Please specify at least one GPU.")
-        self._num_gpus = len(gpu_array)
+        self._num_gpus = len(gpu_array) # TODO: currently only support tp. apply dp, pp.
+        self._parallel_size = {
+            'tp': str(self._num_gpus)
+        }
 
         # Result file headers
         self._headers = [
@@ -169,24 +160,24 @@ class VLLMBenchmark:
         except FileNotFoundError:
             return False
 
-    def _load_env_file(self) -> Dict[str, str]:
-        """Load environment variables from the specified env file."""
-        env_file_path = Path.cwd() / self._env_file # env only accepts relative path
-        env_vars = {}
+    def _load_model_config(self) -> None:
+        """Load model configuration from the specified config file."""
+        config_path = Path(self._model_config)
+        if not config_path.exists():
+            raise FileNotFoundError(f"Model config file not found: {config_path}")
 
-        if not env_file_path.exists():
-            raise FileNotFoundError(f"Environment file not found: {env_file_path}. It only accepts relative path from current directory")
+        with open(config_path) as f:
+            config_content = f.read()
+            # Parse the YAML content
+            model_config = yaml.safe_load(config_content)
+    
+        self._env_vars = model_config.get('envs', {})
 
-        with open(env_file_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    try:
-                        key, value = line.split('=', 1)
-                        env_vars[key.strip()] = value.strip().strip('"')
-                    except ValueError:
-                        continue
-        return env_vars
+        vllm_server_args = model_config.get('vllm_server_args', {})
+        self._vllm_args.update(vllm_server_args)
+
+        compilation_config = model_config.get('compilation_config', {})
+        self._compilation_config = compilation_config
 
     def _setup_container_name(self):
         """Setup container name based on environment and GPU configuration."""
@@ -196,7 +187,7 @@ class VLLMBenchmark:
         self.container_name = ""
         if slurm_job_id:
             self.container_name = f"{slurm_job_id}-"
-        self.container_name += f"{os.path.basename(self._model_name)}-{image_tag}-{os.path.basename(self._env_file)}-g{self._gpu_devices.replace(',', '_')}"
+        self.container_name += f"{os.path.basename(self._model_name)}-{image_tag}-g{self._gpu_devices.replace(',', '_')}"
 
     def _setup_logging_dirs(self):
         """Setup logging directories for the benchmark."""
@@ -207,11 +198,10 @@ class VLLMBenchmark:
         self.result_file = self._log_dir / "result_list.csv"
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
 
-        self.server_log = self._log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{image_tag}-{os.path.basename(self._env_file)}-t{self._num_gpus}.txt"
+        self.server_log = self._log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{image_tag}-t{self._parallel_size.get('tp', '1')}.txt"
         self.server_log.parent.mkdir(parents=True, exist_ok=True)
 
-        self._env_tag = "-".join(Path(os.path.basename(self._env_file)).parts)
-        self._exp_tag = f"{self._env_tag}_tp{self._env_vars.get('TENSOR_PARALLEL_SIZE', '1')}"
+        self._exp_tag = f"{Path(self._model_config).stem}_tp{self._parallel_size.get('tp', '1')}"
 
         # Initialize result file if it doesn't exist
         if not self.result_file.exists():
@@ -234,60 +224,27 @@ class VLLMBenchmark:
         headers_line += [h.rjust(10) for h in headers_split[self._metric_start_column_idx:]]
         logger.info('\t'.join(headers_line))
 
-    def _get_vllm_args(self) -> str:
+    def _build_vllm_args(self) -> str:
         """Construct VLLM arguments based on environment variables."""
-        args = [
-            "--kv-cache-dtype", f"{self._env_vars.get('KV_CACHE_DTYPE', '')}",
-            "--gpu_memory_utilization", f"{self._env_vars.get('GPU_MEMORY_UTILIZATION', '0.9')}",
-            "--max-num-batched-token", f"{self._env_vars.get('MAX_NUM_BATCHED_TOKENS', '4096')}",
-            "--max-num-seqs", f"{self._max_num_seqs}",
-            "--swap-space", "16",
-            "--no-enable-prefix-caching",
-        ]
-        if self._env_vars.get('QUANTIZATION', 'auto') != 'auto':
-            args.extend(["--quantization", f"{self._env_vars.get('QUANTIZATION')}"])
-
-        # ROCM version handling
-        # rocm version format should be like "6.4.0" or "7.0.1"
-        # load rocm version from pytorch installed in container
-        if not self._is_dry_run:
-            container_rocm_version = subprocess.run(
-                [self._container_runtime, "run", "--rm", self._vllm_image, "python3", "-c",
-                    "import torch; print(torch.version.hip)"],
-                capture_output=True, text=True
-            ).stdout.strip()
-            if container_rocm_version is None or container_rocm_version == "":
-                logger.warning("Failed to get ROCM version from container")
-
-            rocm_version_nums = [int(x) for x in re.findall(r'\d+', container_rocm_version)]
-            if len(rocm_version_nums) >= 2:
-                if (rocm_version_nums[0] >= 7):
-                    args.append("--async-scheduling")
-
-        vllm_use_v1 = self._env_vars.get("VLLM_USE_V1", "1") # V1 is default
-        if vllm_use_v1 == "0":
-            self._env_vars["VLLM_USE_TRITON_FLASH_ATTN"] = "0"
-        else:
-            if self._env_vars.get("VLLM_ROCM_USE_AITER") == "1":
-                cudagraph_mode = self._env_vars.get("VLLM_CUDAGRAPH_MODE", "FULL_AND_PIECEWISE")
-                if cudagraph_mode:
-                    modes = {
-                        "NONE":                 "{\"cudagraph_mode\": null}",
-                        "PIECEWISE":            "{\"cudagraph_mode\": \"PIECEWISE\"}",
-                        "FULL":                 "{\"cudagraph_mode\": \"FULL\"}",
-                        "FULL_DECODE_ONLY":     "{\"cudagraph_mode\": \"FULL_DECODE_ONLY\"}",
-                        "FULL_AND_PIECEWISE":   "{\"cudagraph_mode\": \"FULL_AND_PIECEWISE\"}",
-                        "MOE": "{\"compile_sizes\":[1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,90,92,94,96,98,100,102,104,106,108,110,112,114,116,118,120,122,124,126,128,256,512,1024,2048,8192], "\
-                                "\"cudagraph_capture_sizes\":[1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,90,92,94,96,98,100,102,104,106,108,110,112,114,116,118,120,122,124,126,128,136,144,152,160,168,176,184,192,200,208,216,224,232,240,248,256,264,272,280,288,296,304,312,320,328,336,344,352,360,368,376,384,392,400,408,416,424,432,440,448,456,464,472,480,488,496,504,512,520,528,536,544,552,560,568,576,584,592,600,608,616,624,632,640,648,656,664,672,680,688,696,704,712,720,728,736,744,752,760,768,776,784,792,800,808,816,824,832,840,848,856,864,872,880,888,896,904,912,920,928,936,944,952,960,968,976,984,992,1000,1008,1016,1024,2048,4096,8192], "\
-                                "\"cudagraph_mode\": \"FULL\"}"
-                    }
-                    if cudagraph_mode in modes:
-                        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml",
-                                                         dir=self._compile_cache_dir,
-                                                         encoding="utf-8", delete=False) as f:
-                            f.write(f"compilation_config: '{modes[cudagraph_mode]}'\n")
-                            args.extend(["--config", str(Path("root") / ".cache" / "compile_config" / f.name)])
-                            self.temp_compile_config_file = f.name
+        # vllm args
+        args = []
+        for key, value in self._vllm_args.items():
+            if key == "quantization" and value == "auto":
+                continue
+            if isinstance(value, bool):
+                if value:
+                    args.append(f"--{key.replace('_', '-')}")
+            else:
+                args.extend([f"--{key.replace('_', '-')}", str(value)])
+        
+        # compilation config
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml",
+                                         dir=self._compile_cache_dir,
+                                         encoding="utf-8", delete=False) as f:
+            dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
+            f.write(f"compilation_config: '{dict_config_str}'\n")
+            args.extend(["--config", str(Path("root") / ".cache" / "compile_config" / f.name)])
+            self.temp_compile_config_file = f.name
 
         return " ".join(args)
 
@@ -321,28 +278,34 @@ class VLLMBenchmark:
             "--cap-add=SYS_PTRACE",
             "--shm-size=16gb",
             "--security-opt", "seccomp=unconfined",
-            "--env-file", str(Path.cwd() / self._env_file),
-            "-e", f"VLLM_USE_TRITON_FLASH_ATTN={self._env_vars.get('VLLM_USE_TRITON_FLASH_ATTN', '0')}",
             "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
-            "-v", f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
+            "--env-file", self._common_env_file,
+        ]
+
+        # set additional env variables for model config
+        for key, value in self._env_vars.items():
+            cmd.extend(["-e", f"{key}={value}"])
+
+        # set volume mounts and run server command
+        cmd.extend([
             "-v", f"{self._model_path}:{self._container_model_path}:ro",
             "-v", f"{self._host_cache_dir}:/root/.cache",
             "-v", f"{self._compile_cache_dir}:/root/.cache/compile_config",
             "-v", f"{self._aiter_cache_dir}:/root/.aiter",
+            "-v", f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
             "-w", f"{os.environ.get('HOME')}",
             self._vllm_image,
             "vllm", "serve",
             f"{self._container_model_path}",
+            "--host", "0.0.0.0", 
             "--no-enable-log-requests",
             "--trust-remote-code",
-            "--tensor-parallel-size", f"{self._num_gpus}",
-            "--distributed-executor-backend", "mp",
+            "--tensor-parallel-size", f"{self._parallel_size.get('tp', '1')}",
             "--port", f"{self.vllm_port}",
-            "--host", "0.0.0.0"
-        ]
+        ])
 
         # get extra vLLM args
-        cmd.extend(self._get_vllm_args().split())
+        cmd.extend(self._build_vllm_args().split())
 
         return cmd
 
@@ -419,14 +382,13 @@ class VLLMBenchmark:
                                concurrency: int,
                                input_length: int,
                                output_length: int,
-                               num_iteration: Optional[int]) -> bool:
+                               num_iteration: int,
+                               batch_size: int) -> bool:
         """Check if results already exist for this configuration."""
         if not self.result_file.exists():
             return False
 
-        if num_iteration is None:
-            num_iteration = int(self._env_vars.get('NUM_ITERATION', self._num_iteration))
-        search_str = f"{self._env_file},{self._num_gpus},{request_rate},{num_iteration},{self._max_num_seqs},{concurrency},{input_length},{output_length}"
+        search_str = f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},{request_rate},{num_iteration},{batch_size},{concurrency},{input_length},{output_length}"
         search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
 
         # print previous benchmark result if exists
@@ -470,12 +432,13 @@ class VLLMBenchmark:
 
         return metrics
 
-    def _save_results(self, request_rate: int, num_iteration: int, concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
+    def _save_results(self, request_rate: int, num_iteration: int, batch_size: int,
+                      concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
 
         """Save benchmark results to the result file."""
         result_line = (
-            f"{os.path.basename(self._env_file)},{self._num_gpus},"
-            f"{request_rate},{num_iteration},{self._max_num_seqs},{concurrency},{input_length},{output_length},{metrics['test_time']},"
+            f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},"
+            f"{request_rate},{num_iteration},{batch_size},{concurrency},{input_length},{output_length},{metrics['test_time']},"
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
             f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
@@ -487,11 +450,12 @@ class VLLMBenchmark:
         with open(self.result_file, 'a') as f:
             f.write(result_line)
 
-    def _print_result(self, request_rate: int, num_iteration: int, concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
+    def _print_result(self, request_rate: int, num_iteration: int, batch_size: int, 
+                      concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
         result_line = (
-            f"{os.path.basename(self._env_file).ljust(16)}\t{self._num_gpus:>6d}"
-            f"{request_rate}{num_iteration:>6d}{self._max_num_seqs:>6d}{concurrency:>6d}{input_length:>6d}{output_length:>6d}{metrics['test_time']:>6.2f}"
+            f"{Path(self._model_config).stem.ljust(16)}\t{int(self._parallel_size.get('tp', '1')):>6d}"
+            f"{request_rate}{num_iteration:>6d}{batch_size:>6d}{concurrency:>6d}{input_length:>6d}{output_length:>6d}{metrics['test_time']:>6.2f}"
             f"{metrics['ttft_mean']:10.2f}{metrics['ttft_median']:10.2f}{metrics['ttft_p99']:10.2f}"
             f"{metrics['tpot_mean']:10.2f}{metrics['tpot_median']:10.2f}{metrics['tpot_p99']:10.2f}"
             f"{metrics['itl_mean']:10.2f}{metrics['itl_median']:10.2f}{metrics['itl_p99']:10.2f}"
@@ -506,13 +470,12 @@ class VLLMBenchmark:
                              concurrency: int,
                              input_length: int,
                              output_length: int,
-                             num_iteration: Optional[int] = None):
+                             num_iteration: int,
+                             batch_size: int):
         """Run a single benchmark iteration."""
 
         # if required iteration is not given, use default value
         # which enables to iterate following benchmark plan
-        num_iteration = int(self._num_iteration if num_iteration is None else num_iteration)
-
         num_prompts = concurrency * num_iteration
         cmd = [
             self._container_runtime, "exec", self.container_name,
@@ -535,7 +498,7 @@ class VLLMBenchmark:
         ]
 
         # Check if this configuration has already been tested
-        if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_iteration):
+        if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_iteration, batch_size):
             # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
             return
 
@@ -558,12 +521,12 @@ class VLLMBenchmark:
         metrics = self._extract_metrics(log_file)
 
         # Save and print results
-        self._save_results(
-            request_rate, num_iteration, concurrency, input_length, output_length, metrics)
         self._print_result(
-            request_rate, num_iteration, concurrency, input_length, output_length, metrics)
+            request_rate, num_iteration, batch_size, concurrency, input_length, output_length, metrics)
+        self._save_results(
+            request_rate, num_iteration, batch_size, concurrency, input_length, output_length, metrics)
 
-    def _get_test_plans(self):
+    def _load_test_plan(self):
         """Load test configuration from YAML file."""
         yaml_path = Path("configs/benchmark_plans") / f"{self._test_plan}.yaml"
         if not yaml_path.exists():
@@ -584,7 +547,9 @@ class VLLMBenchmark:
             output_lengths = [scenario.get('output_length')] if isinstance(scenario.get('output_length'), int) \
                 else scenario.get('output_length', [128])
             num_iterations = [scenario.get('num_iteration')] if isinstance(scenario.get('num_iteration'), int) \
-                else scenario.get('num_iteration', [self._num_iteration])
+                else scenario.get('num_iteration', [8])
+            batch_sizes = [scenario.get('batch_size')] if isinstance(scenario.get('batch_size'), int) \
+                else scenario.get('batch_size', [256])
 
             # Generate all combinations
             for rate in request_rates:
@@ -592,14 +557,16 @@ class VLLMBenchmark:
                     for in_len in input_lengths:
                         for out_len in output_lengths:
                             for num_iter in num_iterations:
-                                test_plan = {
-                                    'request_rate': rate,
-                                    'concurrency': concurrency,
-                                    'input_length': in_len,
-                                    'output_length': out_len,
-                                    'num_iteration': num_iter
-                                }
-                                test_plans.append(test_plan)
+                                for batch_size in batch_sizes:
+                                    test_plan = {
+                                        'request_rate': rate,
+                                        'concurrency': concurrency,
+                                        'input_length': in_len,
+                                        'output_length': out_len,
+                                        'num_iteration': num_iter,
+                                        'batch_size': batch_size,
+                                    }
+                                    test_plans.append(test_plan)
 
         if not test_plans:
             raise ValueError("No test scenarios found in test plan")
@@ -644,14 +611,8 @@ class VLLMBenchmark:
 
     def _run_vllm_benchmark(self):
         """Run benchmarks using vLLM test plans."""
-        for test_plan in self._get_test_plans():
+        for test_plan in self._load_test_plan():
             try:
-                # use specified argument in cli
-                if self._request_rate is not None:
-                    test_plan["request_rate"] = self._request_rate
-                if self._num_iteration is not None:
-                    test_plan["num_iteration"] = self._num_iteration
-
                 self.run_single_benchmark(**test_plan)
 
                 if self._is_dry_run:
@@ -693,13 +654,11 @@ def main():
 
         benchmark = VLLMBenchmark(
             env_file=args.env_file,
+            model_config=args.model_config,
             model_path=args.model_path,
             vllm_image=args.vllm_image,
             test_plan=args.test_plan,
             gpu_devices=args.gpu_devices,
-            request_rate=args.request_rate,
-            num_iteration=args.num_iteration,
-            max_num_seqs=args.max_num_seqs,
             no_warmup=args.no_warmup,
             dry_run=args.dry_run
         )
@@ -707,11 +666,12 @@ def main():
         benchmark.run()
     except Exception as e:
         logger.error(f"Benchmark failed: {str(e)}")
-
-        if "benchmark" in locals():
-            if hasattr(benchmark, "temp_compile_config_file") and \
-                os.path.exists(benchmark.temp_compile_config_file):
-                    os.remove(benchmark.temp_compile_config_file)
+    # finally:
+    #     # Clean up temporary compile config file if it exists
+    #     if "benchmark" in locals():
+    #         if hasattr(benchmark, "temp_compile_config_file") and \
+    #             os.path.exists(benchmark.temp_compile_config_file):
+    #                 os.remove(benchmark.temp_compile_config_file)
 
         sys.exit(1)
 
