@@ -119,7 +119,7 @@ Following command is an example of benchmarks.
 
 ```bash
 python3 run_vllm_benchmark.py \
-  --model-config=configs/models/llama.yaml \
+  --model-config configs/models/llama.yaml \
   --model-path ~/models/amd/Llama-3.3-70B-Instruct-FP8-KV \
   --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
   --test-plan test \
@@ -130,7 +130,7 @@ python3 run_vllm_benchmark.py \
 
 ```bash
 python3 run_vllm_benchmark.py \
-  --model-config=configs/models/gpt-oss.yaml \
+  --model-config configs/models/gpt-oss.yaml \
   --model-path ~/models/openai/gpt-oss-120b \
   --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
   --test-plan test \
@@ -152,7 +152,7 @@ python3 run_vllm_benchmark.py \
 
 ```bash
 python run_vllm_benchmark.py \
-  --env-file configs/models/default.yaml \
+  --model-config configs/models/default.yaml \
   --model-path ~/models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
   --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
   --test-plan test \
