@@ -18,7 +18,7 @@ The following command shows how to use this.
 
 ```bash
 python run_vllm_benchmark.py \
-    --env-file configs/envs/mi300x/vllm/baseline \
+    --model-config configs/models/default.yaml \
     --model-path ~/models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
     --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
     --test-plan test \
