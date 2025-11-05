@@ -1,0 +1,29 @@
+test_scenarios:
+  - name: "hybrid-test"
+    description: "Hybrid test with balanced input/output ratio"
+    request_rate: 0  # inf
+    concurrency: [1, 2, 4, 8, 16, 32, 64, 128]
+    input_length: 1024
+    output_length: 256
+    num_iteration: 8
+  - name: "hybrid-test-2"
+    description: "Hybrid test with balanced input/output ratio"
+    request_rate: 0  # inf
+    concurrency: [1, 2, 4, 8, 16, 32, 64, 128]
+    input_length: 2048
+    output_length: 512
+    num_iteration: 8
+  - name: "hybrid-test-3"
+    description: "Hybrid test with balanced input/output ratio"
+    request_rate: 0  # inf
+    concurrency: [1, 2, 4, 8, 16, 32, 64, 128]
+    input_length: 4096
+    output_length: 1024
+    num_iteration: 8
+  - name: "hybrid-test-4"
+    description: "Hybrid test with balanced input/output ratio"
+    request_rate: 0  # inf
+    concurrency: [1, 2, 4, 8, 16, 32, 64, 128]
+    input_length: [8192, 16384]
+    output_length: 2048
+    num_iteration: 8

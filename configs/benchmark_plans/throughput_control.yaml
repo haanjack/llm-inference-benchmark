@@ -1,0 +1,24 @@
+test_scenarios:
+  - name: "controlled-throughput-low"
+    description: "Controlled throughput test with low concurrency"
+    request_rate: 3
+    concurrency: 5
+    input_length: 2048
+    output_length: 256
+    num_iteration: [10, 20, 30, 40, 50, 60]
+
+  - name: "controlled-throughput-medium"
+    description: "Controlled throughput test with medium concurrency"
+    request_rate: 5
+    concurrency: 10
+    input_length: 2048
+    output_length: 256
+    num_iteration: [10, 20, 30, 40, 50, 60]
+
+  - name: "controlled-throughput-high"
+    description: "Controlled throughput test with high concurrency"
+    request_rate: 10
+    concurrency: 20
+    input_length: 2048
+    output_length: 256
+    num_iteration: [10, 20, 30, 40, 50, 60]

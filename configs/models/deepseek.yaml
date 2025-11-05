@@ -1,0 +1,26 @@
+env:
+  # HUGGING_FACE_HUB_TOKEN: "your_token_here"
+  VLLM_ROCM_USE_AITER: 1 
+  VLLM_USE_AITER_TRITON_ROPE: 1 
+  VLLM_ROCM_USE_AITER_RMSNORM: 1 
+  VLLM_ROCM_QUICK_REDUCE_QUANTIZATION: INT4 
+  VLLM_ROCM_USE_AITER_TRITON_FUSED_RMSNORM_FP8_QUANT: 1 
+  VLLM_ROCM_USE_AITER_TRITON_FUSED_MUL_ADD: 1 
+  VLLM_ROCM_USE_AITER_TRITON_FUSED_SHARED_EXPERTS: 1 
+
+vllm_server_args:
+  # Settings from AMD documentation
+  quantization: auto
+  kv-cache-dtype: auto
+
+  # max_model_len: 1024
+  gpu-memory-utilization: 0.95
+  # max-num-batched-tokens: 4096
+  swap-space: 64
+  block-size: 1
+  no-enable-prefix-caching: true
+  # async-scheduling: true
+
+compilation_config:
+  # Used when VLLM_ROCM_USE_AITER=1
+  cudagraph_mode: "FULL_AND_PIECEWISE"
