@@ -296,16 +296,6 @@ class VLLMBenchmark:
             "--env-file", self._common_env_file,
         ]
 
-        # set additional env variables for model config
-        for key, value in self._env_vars.items():
-            if key == "arch_specific_params":
-                arch_params = json.dumps(value, separators=(',', ':'))
-                for
-                cmd.extend(["-e", f"{key}={arch_params}"])
-                continue
-
-            cmd.extend(["-e", f"{key}={value}"])
-
         # set volume mounts and run server command
         cmd.extend([
             "-v", f"{self._model_path}:{self._container_model_path}:ro",
