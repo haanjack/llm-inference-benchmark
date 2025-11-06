@@ -356,7 +356,7 @@ class VLLMBenchmark:
         return cmd
 
     def _start_server(self):
-        """Start the vLLM server in a Docker container."""
+        """Start the vLLM server, either in a container or as a direct process."""
         if self._in_container:
             self._start_server_direct()
         else:
@@ -756,6 +756,7 @@ def main():
         benchmark.run()
     except Exception as e:
         logger.error(f"Benchmark failed: {str(e)}")
+        sys.exit(1)
     finally:
         # Clean up temporary compile config file if it exists
         if "benchmark" in locals():
@@ -766,8 +767,9 @@ def main():
             # Ensure server process is killed on error
             if benchmark._in_container:
                 benchmark._cleanup_server_process()
+            else:
+                benchmark._cleanup_container(benchmark.container_name)
 
-        sys.exit(1)
 
 if __name__ == "__main__":
     main()
