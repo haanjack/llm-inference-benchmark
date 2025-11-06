@@ -227,6 +227,7 @@ class VLLMBenchmark:
                 if not model_root_dir.exists():
                     model_root_dir.mkdir(parents=True, exist_ok=True)
                 
+                print(model_path_or_id)
                 return snapshot_download(
                     repo_id=model_path_or_id,
                     local_dir=model_root_dir,
@@ -239,12 +240,15 @@ class VLLMBenchmark:
                 token=token
             )
 
+        model_root_dir = model_root_dir if Path(model_root_dir).is_absolute() else Path.cwd()/model_root_dir
+
         # absolute path
         if Path(model_path_or_id).is_absolute():
             if Path(model_path_or_id).exists():
                 return Path(model_path_or_id)
             else:
-                return Path(download_model(model_path_or_id, model_root_dir)
+                model_id = Path(model_path_or_id).relative_to(model_root_dir)
+                return Path(download_model(model_id, model_root_dir))
 
         # relative path
         if (Path.cwd() / model_path_or_id).exists():
@@ -252,7 +256,8 @@ class VLLMBenchmark:
             if model_path.exists():
                 return model_path
             else: 
-                return Path(download_model(model_path, model_root_dir)
+                model_id = model_path_or_id.relative_to(model_root_dir)
+                return Path(download_model(model_id, model_root_dir))
 
         return Path(download_model(model_path_or_id, model_root_dir))
 
@@ -802,6 +807,7 @@ def main():
             env_file=args.env_file,
             model_config=args.model_config,
             model_path_or_id=args.model_path_or_id,
+            model_root_dir=args.model_root_dir,
             vllm_image=args.vllm_image,
             test_plan=args.test_plan,
             gpu_devices=args.gpu_devices,
