@@ -6,7 +6,7 @@ This is benchmark script for extensive inference tests for various setups. This 
  - num concurrency
  - iteration based num prompts control
  - request rate control
- - Executable on with `docker`, `podman` and `in-container` test
+ - Execution support for `docker`, `podman`, and direct in-container runs
 
 In addition, this benchmark test tries to obey [AMD's vLLM V1 performance optimization](https://rocm.docs.amd.com/en/develop/how-to/rocm-for-ai/inference-optimization/vllm-optimization.html) guide and validation.
 
