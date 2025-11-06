@@ -240,7 +240,7 @@ class VLLMBenchmark:
                 token=token
             )
 
-        model_root_dir = model_root_dir if Path(model_root_dir).is_absolute() else Path.cwd()/model_root_dir
+        model_root_dir = model_root_dir if Path(model_root_dir).is_absolute() else Path.home() / model_root_dir
 
         # absolute path
         if Path(model_path_or_id).is_absolute():
@@ -248,7 +248,7 @@ class VLLMBenchmark:
                 return Path(model_path_or_id)
             else:
                 model_id = Path(model_path_or_id).relative_to(model_root_dir)
-                return Path(download_model(model_id, model_root_dir))
+                return Path(download_model(str(model_id), model_root_dir))
 
         # relative path
         if (Path.cwd() / model_path_or_id).exists():
@@ -476,7 +476,8 @@ class VLLMBenchmark:
 
         # add common environment vars
         with open(self._common_env_file, "r", encoding="utf-8") as f:
-            common_env = yaml.load(f, yaml.FullLoader)
+            import dotenv
+            common_env = dotenv.dotenv_values(stream=f)
             server_env.update(common_env)
         
         # add vllm environment vars
@@ -723,6 +724,9 @@ class VLLMBenchmark:
 
     def _warmup_server(self):
         """Warmup the server before benchmarking."""
+        if self._is_dry_run:
+            return
+        
         if self._is_no_warmup:
             logger.info("Skipping warmup as per user request")
             return
