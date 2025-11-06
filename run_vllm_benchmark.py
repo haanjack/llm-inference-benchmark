@@ -16,6 +16,8 @@ import requests
 import utils
 import tempfile
 
+from huggingface_hub import snapshot_download
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -90,8 +92,22 @@ class VLLMBenchmark:
         # Sanity Check
         if not self._test_plan_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find test plan: {self._test_plan_path}. Please check the plan name")
-        if not self._model_path.exists() and not self._is_dry_run:
-            raise FileNotFoundError(f"Could not find model path {self._model_name}. Please check model path.")
+        if not self._get_model_path().exists() and not self._is_dry_run:
+            # download hugging face model            from huggingface_hub import snapshot_download
+            logger.info(f"Downloading model {self._model_name} from Hugging Face Hub...")
+            hf_token = os.environ.get("HUGGING_FACE_HUB_TOKEN", None)
+            if hf_token is None:
+                raise AssertionError("Tried to download model, but HUGGING_FACE_HUB_TOKEN is not defined.")
+            
+            try:
+                snapshot_download(
+                    repo_id=self._model_name,
+                    local_dir=self._get_model_path(),
+                    token=hf_token,
+                )
+                logger.info(f"Model {self._model_name} downloaded successfully to {self._model_path}")
+            except Exception as e:
+                raise RuntimeError(f"Failed to download model {self._model_name} from Hugging Face Hub: {e}")
 
         # GPU configuration
         gpu_array = self._gpu_devices.split(',')
