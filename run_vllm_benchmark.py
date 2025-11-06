@@ -216,30 +216,30 @@ class VLLMBenchmark:
         ) -> Path:
 
         # download model under save_root_dir or cache
-        def download_model(model_path_or_id: str,
+        def download_model(model_id: str,
                            model_root_dir: Optional[Union[str, Path]] = None) -> str:
             cache_dir = os.environ.get("HF_HOME", None)
             token = os.environ.get("HF_TOKEN", None)
             if token is None:
                 logger.warning("HF_TOKEN is not defined. Model may not be unavailable to download")
             if model_root_dir:
-                model_root_dir = Path(model_root_dir)
-                if not model_root_dir.exists():
-                    model_root_dir.mkdir(parents=True, exist_ok=True)
+                model_save_dir = Path(model_root_dir) / model_id
+                if not model_save_dir.exists():
+                    model_save_dir.mkdir(parents=True, exist_ok=True)
                 
-                print(model_path_or_id)
                 return snapshot_download(
-                    repo_id=model_path_or_id,
-                    local_dir=model_root_dir,
+                    repo_id=model_id,
+                    local_dir=model_save_dir,
                     cache_dir=cache_dir,
                     token=token
                 )
             return snapshot_download(
-                repo_id=model_path_or_id,
+                repo_id=model_id,
                 cache_dir=cache_dir,
                 token=token
             )
 
+        # set model root dir
         model_root_dir = model_root_dir if Path(model_root_dir).is_absolute() else Path.home() / model_root_dir
 
         # absolute path
@@ -248,18 +248,22 @@ class VLLMBenchmark:
                 return Path(model_path_or_id)
             else:
                 model_id = Path(model_path_or_id).relative_to(model_root_dir)
-                return Path(download_model(str(model_id), model_root_dir))
+                download_model(str(model_id), model_root_dir)
+                return Path(model_root_dir) / model_id
 
         # relative path
         if (Path.cwd() / model_path_or_id).exists():
-            model_path = (Path().cwd() / model_path_or_id)
-            if model_path.exists():
-                return model_path
-            else: 
-                model_id = model_path_or_id.relative_to(model_root_dir)
-                return Path(download_model(model_id, model_root_dir))
-
-        return Path(download_model(model_path_or_id, model_root_dir))
+            return str((Path.cwd() / model_path_or_id).resolve())
+            
+        # model id from huggingface hub
+        # check if it is in model_root_dir
+        if (model_root_dir / model_path_or_id).exists():
+            return model_root_dir / model_path_or_id
+        
+        # download from huggingface hub
+        assert model_path_or_id.count('/') == 1, "Model id should be in the format of 'namespace/model_name'"
+        download_model(model_path_or_id, model_root_dir)
+        return Path(model_root_dir) / model_id
 
     def _setup_container_name(self):
         """Setup container name based on environment and GPU configuration."""
@@ -732,8 +736,13 @@ class VLLMBenchmark:
             return
 
         logger.info("Warming up the server...")
-        warmup_cmd = [
-            self._container_runtime, "exec", self.container_name,
+        warmup_cmd = []
+
+        if not self._in_container:
+            warmup_cmd.extend(
+                [self._container_runtime, "exec", self.container_name])
+            
+        warmup_cmd.extend([
             "vllm", "bench", "serve",
             "--model", f"{self._get_model_path()}",
             "--backend", "vllm",
@@ -749,7 +758,7 @@ class VLLMBenchmark:
             f"--random-output-len=16",
             "--tokenizer", f"{self._get_model_path()}",
             "--disable-tqdm"
-        ]
+        ])
 
         if self._is_dry_run:
             logger.info("Dry run - Warmup command:")

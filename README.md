@@ -110,6 +110,17 @@ There are several test cases in `configs/benchmark_plans`.
  - [hybrid](./configs/benchmark_plans/hybrid.yaml)
  - [throughput_control](./configs/benchmark_plans/throughput_control.yaml)
 
+### Model load or download
+There are multiple methods to specify benchmark model path for `--model-path`.
+
+1. Absolute path
+
+  - Model loads from specified model path. If the model does not exist in that path, this script tries to download model from huggingface hub.
+
+2. HuggingFace Model ID
+
+  - Users can specify huggingface hub's model id, then this benchmark script will find model based on `model_root_dir`. `model_root_dir` directs `${HOME}/models` by default, but you can change anywhere you want with `--model-root-dir` argument. If this benchmark could not find the model, then this script will try to download model from the huggingface hub. You might want to update `HF_TOKEN` environment variable in `configs/envs/common` file to get access to the huggingface hub.
+
 
 ## Benchmark Result
 
