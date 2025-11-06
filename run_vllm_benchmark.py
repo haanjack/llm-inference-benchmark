@@ -43,6 +43,8 @@ def get_args():
                         help='no warmup at benchmark start')
     parser.add_argument('--dry-run', action='store_true',
                        help='Show commands without executing them')
+    parser.add_argument('--in-container', action='store_true',
+                        help='Run benchmark directly without launching a new container')
 
     args = parser.parse_args()
 
@@ -59,7 +61,8 @@ class VLLMBenchmark:
                  gpu_devices: str = "0",
                  arch: str = None,
                  no_warmup: bool = False,
-                 dry_run: bool = False):
+                 dry_run: bool = False,
+                 in_container: bool = False):
 
         # benchmark configuration
         self._common_env_file = env_file
@@ -81,6 +84,7 @@ class VLLMBenchmark:
 
         self._is_no_warmup = no_warmup
         self._is_dry_run = dry_run
+        self._in_container = in_container
 
         # Sanity Check
         if not self._test_plan_path.exists() and not self._is_dry_run:
@@ -110,7 +114,8 @@ class VLLMBenchmark:
         ]
 
         # determine docker or podman
-        self._container_runtime = "docker" if self._is_docker_available() else "podman"
+        if not self._in_container:
+            self._container_runtime = "docker" if self._is_docker_available() else "podman"
 
         # Container name setup
         self._setup_container_name()
@@ -124,6 +129,9 @@ class VLLMBenchmark:
 
         self._metric_start_column_idx = 9
         self._print_benchmark_info()
+
+        # For direct subprocess management
+        self.server_process = None
 
     def _cache_dir(self):
         """Configure vllm cache directory which to reduce compilation overhead."""
@@ -264,12 +272,23 @@ class VLLMBenchmark:
 
     def _cleanup_log_processes(self):
         """Terminate log collection processes if they exist."""
-        if hasattr(self, 'log_processes'):
+        if hasattr(self, 'log_processes') and self.log_processes:
             for process in self.log_processes:
                 try:
                     process.terminate()
                     process.wait(timeout=5)  # Wait for graceful termination
                 except (subprocess.TimeoutExpired, ProcessLookupError):
+                    process.kill()  # Force kill if graceful termination fails
+
+    def _cleanup_server_process(self):
+        """Terminate the direct server process if it exists."""
+        if self.server_process:
+            logger.info("Shutting down vLLM server process...")
+            self.server_process.terminate()
+            try:
+                self.server_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.server_process.kill()
                     process.kill()  # Force kill if graceful termination fails
 
     def _cleanup_container(self, container_name):
@@ -319,8 +338,32 @@ class VLLMBenchmark:
 
         return cmd
 
+    def get_server_run_cmd_direct(self) -> str:
+        """Construct the direct run command for the vLLM server."""
+        cmd = [
+            "vllm", "serve",
+            f"{self._container_model_path}",
+            "--host", "0.0.0.0",
+            "--no-enable-log-requests",
+            "--trust-remote-code",
+            "--tensor-parallel-size", f"{self._parallel_size.get('tp', '1')}",
+            "--port", f"{self.vllm_port}",
+        ]
+
+        # get extra vLLM args
+        cmd.extend(self._build_vllm_args().split())
+
+        return cmd
+
     def _start_server(self):
         """Start the vLLM server in a Docker container."""
+        if self._in_container:
+            self._start_server_direct()
+        else:
+            self._start_server_container()
+
+    def _start_server_container(self):
+        """Start the vLLM server in a container."""
         if not self._is_dry_run:
             self._cleanup_container(self.container_name)
 
@@ -354,6 +397,32 @@ class VLLMBenchmark:
             )
             # Store process IDs for later cleanup if needed
             self.log_processes = [stdout_process, stderr_process]
+
+    def _start_server_direct(self):
+        """Start the vLLM server as a direct subprocess."""
+        cmd = self.get_server_run_cmd_direct()
+
+        if self._is_dry_run:
+            logger.info("Dry run - Direct server command:")
+            logger.info(" ".join(cmd))
+            return
+
+        logger.info("Starting vLLM server as a direct process...")
+        server_env = os.environ.copy()
+        server_env["CUDA_VISIBLE_DEVICES"] = self._gpu_devices
+
+        # add common environment vars
+        with open(self._common_env_file, "r", encoding="utf-8") as f:
+            common_env = yaml.load(f, yaml.FullLoader)
+            server_env.update(common_env)
+        
+        # add vllm environment vars
+        for key, value in self._env_vars.items():
+            server_env[key] = str(value)
+
+        self.server_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.server_log, 'w') as f:
+            self.server_process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env)
 
     def _wait_for_server(self, timeout: int = 2400) -> bool:
         """Wait for the server to become available."""
@@ -487,9 +556,13 @@ class VLLMBenchmark:
         # if required iteration is not given, use default value
         # which enables to iterate following benchmark plan
         num_prompts = concurrency * num_iteration
-        cmd = [
-            self._container_runtime, "exec", self.container_name,
-            "vllm", "bench", "serve",
+        
+        base_cmd = []
+        if not self._in_container:
+            base_cmd.extend([self._container_runtime, "exec", self.container_name])
+
+        base_cmd.extend([
+            "vllm", "bench", "serve", 
             "--model", f"{self._container_model_path}",
             "--backend", "vllm",
             "--host", "localhost",
@@ -505,7 +578,9 @@ class VLLMBenchmark:
             "--tokenizer", f"{self._container_model_path}",
             "--disable-tqdm",
             "--percentile-metrics", "ttft,tpot,itl,e2el"
-        ]
+        ])
+
+        cmd = base_cmd
 
         # Check if this configuration has already been tested
         if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_iteration, batch_size):
@@ -654,8 +729,11 @@ class VLLMBenchmark:
         self._run_vllm_benchmark()
 
         # Cleanup container after this configuration
-        self._cleanup_container(self.container_name)
-        if not self._is_dry_run:
+        if self._in_container:
+            self._cleanup_server_process()
+        else:
+            self._cleanup_container(self.container_name)
+        if not self._is_dry_run and not self._in_container:
             logger.info(f"Benchmarking complete. Results saved to {self.result_file}")
 
 def main():
@@ -671,18 +749,23 @@ def main():
             gpu_devices=args.gpu_devices,
             arch=args.arch,
             no_warmup=args.no_warmup,
-            dry_run=args.dry_run
+            dry_run=args.dry_run,
+            in_container=args.in_container
         )
 
         benchmark.run()
     except Exception as e:
         logger.error(f"Benchmark failed: {str(e)}")
-    # finally:
-    #     # Clean up temporary compile config file if it exists
-    #     if "benchmark" in locals():
-    #         if hasattr(benchmark, "temp_compile_config_file") and \
-    #             os.path.exists(benchmark.temp_compile_config_file):
-    #                 os.remove(benchmark.temp_compile_config_file)
+    finally:
+        # Clean up temporary compile config file if it exists
+        if "benchmark" in locals():
+            if hasattr(benchmark, "temp_compile_config_file") and \
+                os.path.exists(benchmark.temp_compile_config_file):
+                    os.remove(benchmark.temp_compile_config_file)
+      
+            # Ensure server process is killed on error
+            if benchmark._in_container:
+                benchmark._cleanup_server_process()
 
         sys.exit(1)
 

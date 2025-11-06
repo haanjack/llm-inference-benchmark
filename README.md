@@ -6,11 +6,24 @@ This is benchmark script for extensive inference tests for various setups. This 
  - num concurrency
  - iteration based num prompts control
  - request rate control
- - `docker` and `podman` agnostic
+ - Executable on with `docker`, `podman` and `in-container` test
 
 In addition, this benchmark test tries to obey [AMD's vLLM V1 performance optimization](https://rocm.docs.amd.com/en/develop/how-to/rocm-for-ai/inference-optimization/vllm-optimization.html) guide and validation.
 
 This benchmark script generate vLLM server command, execute, and perform benchmark.
+
+## Execution Modes
+
+The script supports two main execution modes:
+
+1.  **Host Mode (Default):** The script runs on your host machine and launches a `docker` or `podman` container to run the vLLM server and benchmark client. This is the standard way to use the script.
+
+2.  **In-Container Mode (`--in-container`):** When you are already inside a container that has the vLLM environment and GPU access, you can use the `--in-container` flag. This tells the script to bypass `docker`/`podman` and execute the vLLM server and benchmark client as direct subprocesses.
+
+    ```bash
+    # Example of running inside a pre-configured container
+    python run_vllm_benchmark.py --in-container --model-config ...
+    ```
 
 ## Basic usage of test
 
