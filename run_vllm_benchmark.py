@@ -35,8 +35,8 @@ def get_args():
                         help='Environment file name')
     parser.add_argument('--vllm-image', 
                         help='vLLM Docker image')
-    parser.add_argument('--model-path', 
-                        help='Model checkpoint path')
+    parser.add_argument('--model-path-or-id', 
+                        help='Model checkpoint path or model id in huggingface hub')
     parser.add_argument('--model-root-dir', default="models", 
                         help='Model root directory')
     parser.add_argument('--model-config', 
@@ -65,7 +65,7 @@ class VLLMBenchmark:
     def __init__(self,
                  env_file: str = None,
                  vllm_image: str = None,
-                 model_path: str = None,
+                 model_path_or_id: str = None,
                  model_root_dir: str = None,
                  model_config: str = None,
                  test_plan: str = "test",
@@ -84,11 +84,7 @@ class VLLMBenchmark:
         self._model_config  = model_config
         self._load_model_config()
 
-        self._model_path = model_path
-        self._model_path = Path(self._model_path) if Path(self._model_path).is_absolute() \
-                            else (Path().cwd() / self._model_path) 
-    
-        self._model_path = self._load_model_from_path_or_hub(model_path, model_root_dir)
+        self._model_path = self._load_model_from_path_or_hub(model_path_or_id, model_root_dir)
         self._model_name = self._model_path.name
         self._container_model_path = Path(f"/models/{self._model_name}")
         self._vllm_image = vllm_image
@@ -104,7 +100,7 @@ class VLLMBenchmark:
         if not self._test_plan_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find test plan: {self._test_plan_path}. Please check the plan name")
         if not self._get_model_path().exists() and not self._is_dry_run:
-            raise FileNotFoundError(f"Could not find model at {self.model_name} in {self._get_model_path()}.")
+            raise FileNotFoundError(f"Could not find model at {self._model_name} in {self._get_model_path()}.")
 
         # GPU configuration
         gpu_array = self._gpu_devices.split(',')
@@ -217,36 +213,48 @@ class VLLMBenchmark:
 
     def _load_model_from_path_or_hub(self, model_path_or_id: str,
                                      model_root_dir: Optional[Union[str, Path]] = None
-        ) -> str:
-        # absolute path
-        if Path(model_path_or_id).is_absolute():
-            return model_path_or_id
-
-        # relative path
-        if (Path().cwd() / model_path_or_id).exists():
-            return Path().cwd() / model_path_or_id
+        ) -> Path:
 
         # download model under save_root_dir or cache
-        cache_dir = os.environ.get("HF_HOME", None)
-        token = os.environ.get("HF_TOKEN", None)
-        if token is None:
-            logger.warning("HF_TOKEN is not defined. Model may not be unavailable to download")
-        if model_root_dir:
-            model_root_dir = Path(model_root_dir)
-            if not model_root_dir.exists():
-                model_root_dir.mkdir(parents=True, exist_ok=True)
-            
+        def download_model(model_path_or_id: str,
+                           model_root_dir: Optional[Union[str, Path]] = None) -> str:
+            cache_dir = os.environ.get("HF_HOME", None)
+            token = os.environ.get("HF_TOKEN", None)
+            if token is None:
+                logger.warning("HF_TOKEN is not defined. Model may not be unavailable to download")
+            if model_root_dir:
+                model_root_dir = Path(model_root_dir)
+                if not model_root_dir.exists():
+                    model_root_dir.mkdir(parents=True, exist_ok=True)
+                
+                return snapshot_download(
+                    repo_id=model_path_or_id,
+                    local_dir=model_root_dir,
+                    cache_dir=cache_dir,
+                    token=token
+                )
             return snapshot_download(
-                repo_id=model_path_or_id
-                local_dir=model_root_dir,
+                repo_id=model_path_or_id,
                 cache_dir=cache_dir,
                 token=token
             )
-        return snapshot_download(
-            repo_id=model_path_or_id,
-            cache_dir=cache_dir,
-            token=token
-        )
+
+        # absolute path
+        if Path(model_path_or_id).is_absolute():
+            if Path(model_path_or_id).exists():
+                return Path(model_path_or_id)
+            else:
+                return Path(download_model(model_path_or_id, model_root_dir)
+
+        # relative path
+        if (Path.cwd() / model_path_or_id).exists():
+            model_path = (Path().cwd() / model_path_or_id)
+            if model_path.exists():
+                return model_path
+            else: 
+                return Path(download_model(model_path, model_root_dir)
+
+        return Path(download_model(model_path_or_id, model_root_dir))
 
     def _setup_container_name(self):
         """Setup container name based on environment and GPU configuration."""
@@ -793,7 +801,7 @@ def main():
         benchmark = VLLMBenchmark(
             env_file=args.env_file,
             model_config=args.model_config,
-            model_path=args.model_path,
+            model_path_or_id=args.model_path_or_id,
             vllm_image=args.vllm_image,
             test_plan=args.test_plan,
             gpu_devices=args.gpu_devices,
@@ -823,3 +831,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
