@@ -74,7 +74,8 @@ class VLLMBenchmark:
         self._load_model_config()
 
         self._model_path = model_path
-        self._model_path = (Path().cwd() / self._model_path) if not Path(self._model_path).is_absolute() else Path(self._model_path)
+        self._model_path = Path(self._model_path) if Path(self._model_path).is_absolute() \
+                            else (Path().cwd() / self._model_path) 
         self._model_name = self._model_path.name
         self._container_model_path = Path(f"/models/{self._model_name}")
         self._vllm_image = vllm_image
@@ -234,6 +235,10 @@ class VLLMBenchmark:
         with open(self.result_file, 'w') as f:
             f.write(''.join(self._headers) + '\n')
 
+    def _get_model_path(self) -> str:
+        """Select proper model path following execution mode"""
+        return self._model_path if self._in_container else self._container_model_path
+
     def _print_header(self):
         """Print the header line to console."""
         if self._is_dry_run:
@@ -289,7 +294,6 @@ class VLLMBenchmark:
                 self.server_process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.server_process.kill()
-                    process.kill()  # Force kill if graceful termination fails
 
     def _cleanup_container(self, container_name):
         """Remove the Docker container if it exists."""
@@ -317,7 +321,7 @@ class VLLMBenchmark:
 
         # set volume mounts and run server command
         cmd.extend([
-            "-v", f"{self._model_path}:{self._container_model_path}:ro",
+            "-v", f"{self._model_path}:{self._get_model_path()}:ro",
             "-v", f"{self._host_cache_dir}:/root/.cache",
             "-v", f"{self._compile_cache_dir}:/root/.cache/compile_config",
             "-v", f"{self._aiter_cache_dir}:/root/.aiter",
@@ -325,7 +329,7 @@ class VLLMBenchmark:
             "-w", f"{os.environ.get('HOME')}",
             self._vllm_image,
             "vllm", "serve",
-            f"{self._container_model_path}",
+            f"{self._get_model_path()}",
             "--host", "0.0.0.0", 
             "--no-enable-log-requests",
             "--trust-remote-code",
@@ -342,7 +346,7 @@ class VLLMBenchmark:
         """Construct the direct run command for the vLLM server."""
         cmd = [
             "vllm", "serve",
-            f"{self._container_model_path}",
+            f"{self._model_path}",
             "--host", "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
@@ -563,7 +567,7 @@ class VLLMBenchmark:
 
         base_cmd.extend([
             "vllm", "bench", "serve", 
-            "--model", f"{self._container_model_path}",
+            "--model", f"{self._get_model_path()}",
             "--backend", "vllm",
             "--host", "localhost",
             f"--port={self.vllm_port}",
@@ -575,7 +579,7 @@ class VLLMBenchmark:
             f"--num-prompts={num_prompts}",
             f"--random-input-len={input_length}",
             f"--random-output-len={output_length}",
-            "--tokenizer", f"{self._container_model_path}",
+            "--tokenizer", f"{self._get_model_path()}",
             "--disable-tqdm",
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ])
@@ -668,7 +672,7 @@ class VLLMBenchmark:
         warmup_cmd = [
             self._container_runtime, "exec", self.container_name,
             "vllm", "bench", "serve",
-            "--model", f"{self._container_model_path}",
+            "--model", f"{self._get_model_path()}",
             "--backend", "vllm",
             "--host", "localhost",
             f"--port={self.vllm_port}",
@@ -680,7 +684,7 @@ class VLLMBenchmark:
             f"--num-prompts=4",
             f"--random-input-len=16",
             f"--random-output-len=16",
-            "--tokenizer", f"{self._container_model_path}",
+            "--tokenizer", f"{self._get_model_path()}",
             "--disable-tqdm"
         ]
 
