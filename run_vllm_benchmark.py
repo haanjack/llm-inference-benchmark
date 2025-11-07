@@ -85,6 +85,10 @@ class VLLMBenchmark:
         self._compilation_config = {}
         self._arch = arch
         self._model_config  = model_config
+        self._is_no_warmup = no_warmup
+        self._is_dry_run = dry_run
+        self._in_container = in_container
+
         self._load_model_config()
 
         self._model_path = self._load_model_from_path_or_hub(model_path_or_id, model_root_dir)
@@ -100,10 +104,6 @@ class VLLMBenchmark:
         self._parallel_size = {
             'tp': str(self._num_gpus)
         }
-
-        self._is_no_warmup = no_warmup
-        self._is_dry_run = dry_run
-        self._in_container = in_container
 
         # Sanity Check
         if not self._test_plan_path.exists() and not self._is_dry_run:
@@ -282,11 +282,11 @@ class VLLMBenchmark:
         if (model_root_dir / model_path_or_id).exists():
             return model_root_dir / model_path_or_id
 
-        # download from huggingface hub
+        # download from huggingface hub (now model_path_or_id is model_id)
         assert model_path_or_id.count('/') == 1, "Model id should be in the format of 'namespace/model_name'"
         if not self._is_dry_run:
             download_model(model_path_or_id, model_root_dir)
-        return Path(model_root_dir) / model_id
+        return Path(model_root_dir) / model_path_or_id
 
     def _setup_container_name(self):
         """Setup container name based on environment and GPU configuration."""
