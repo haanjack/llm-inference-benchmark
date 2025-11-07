@@ -31,7 +31,7 @@ def get_args():
     parser = argparse.ArgumentParser(description='Run vLLM benchmarks')
 
     # benchmark configuration
-    parser.add_argument('--model-config', required=True, 
+    parser.add_argument('--model-config', required=True,
                         help='Model config file path')
     parser.add_argument('--model-path-or-id', required=True,
                         help='Model checkpoint path or model id in huggingface hub')
@@ -39,15 +39,15 @@ def get_args():
                         help='vLLM Docker image.')
     parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan YAML file in configs/benchmark_plans/ (without .yaml extension)')
-    parser.add_argument('--env-file', default="configs/envs/common", 
+    parser.add_argument('--env-file', default="configs/envs/common",
                         help='Environment file name')
-    parser.add_argument('--model-root-dir', default="models", 
+    parser.add_argument('--model-root-dir', default="models",
                         help='Model root directory')
-    parser.add_argument('--gpu-devices', default=None, 
+    parser.add_argument('--gpu-devices', default=None,
                         help='Comma-separated GPU device IDs')
     parser.add_argument('--num-gpus', default=None,
                         help='Number of GPUs')
-    parser.add_argument('--arch', default=None, 
+    parser.add_argument('--arch', default=None,
                         help='Target GPU architecture for model config')
 
     # test control
@@ -144,19 +144,22 @@ class VLLMBenchmark:
         if gpu_devices is None and num_gpus is None:
             raise AssertionError("GPU devices or number of GPUs must be specified.")
         if gpu_devices is not None and num_gpus is not None:
-            raise AssertionError("gpu_devices or number of GPUs shoule be specified")
-        if gpu_devices is not None and num_gpus is None:
-            self._gpu_devices = gpu_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
-            gpu_array = self._gpu_devices.split(',')
+            raise AssertionError("Only one of 'gpu_devices' or 'num_gpus' can be specified.")
+
+        if gpu_devices is not None:
+            # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
+            gpu_array = [dev.strip() for dev in gpu_devices.split(',') if dev.strip()]
+            if not gpu_array:
+                raise ValueError("gpu_devices string is invalid or empty.")
+            self._gpu_devices = ",".join(gpu_array)
             self._num_gpus = len(gpu_array)
             lead_gpu = int(gpu_array[0])
-        if gpu_devices is None and num_gpus is not None:
+        elif num_gpus is not None:
             self._num_gpus = int(num_gpus)
-            self._gpu_devices = ",".join([f"{i}" for i in range(self._num_gpus)])
+            if self._num_gpus <= 0:
+                raise ValueError("num_gpus must be a positive integer.")
+            self._gpu_devices = ",".join(map(str, range(self._num_gpus)))
             lead_gpu = 0
-        
-        if self._num_gpus == 0:
-            raise AssertionError("No GPU is specified. Please specify at least one GPU.")
 
         # VLLM port setup
         self.vllm_port = 23400 + lead_gpu
@@ -209,7 +212,7 @@ class VLLMBenchmark:
             config_content = f.read()
             # Parse the YAML content
             model_config = yaml.safe_load(config_content)
-    
+
         env_vars = model_config.get('envs', {})
         self._env_vars.update(env_vars)
 
@@ -244,7 +247,7 @@ class VLLMBenchmark:
                 model_save_dir = Path(model_root_dir) / model_id
                 if not model_save_dir.exists():
                     model_save_dir.mkdir(parents=True, exist_ok=True)
-                
+
                 return snapshot_download(
                     repo_id=model_id,
                     local_dir=model_save_dir,
@@ -273,12 +276,12 @@ class VLLMBenchmark:
         # relative path
         if (Path.cwd() / model_path_or_id).exists():
             return str((Path.cwd() / model_path_or_id).resolve())
-            
+
         # model id from huggingface hub
         # check if it is in model_root_dir
         if (model_root_dir / model_path_or_id).exists():
             return model_root_dir / model_path_or_id
-        
+
         # download from huggingface hub
         assert model_path_or_id.count('/') == 1, "Model id should be in the format of 'namespace/model_name'"
         if not self._is_dry_run:
@@ -346,7 +349,7 @@ class VLLMBenchmark:
                     args.append(f"--{key.replace('_', '-')}")
             else:
                 args.extend([f"--{key.replace('_', '-')}", str(value)])
-        
+
         # compilation config
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml",
                                          dir=self._compile_cache_dir,
@@ -413,7 +416,7 @@ class VLLMBenchmark:
             self._vllm_image,
             "vllm", "serve",
             f"{self._get_model_path()}",
-            "--host", "0.0.0.0", 
+            "--host", "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
             "--tensor-parallel-size", f"{self._parallel_size.get('tp', '1')}",
@@ -503,7 +506,7 @@ class VLLMBenchmark:
             import dotenv
             common_env = dotenv.dotenv_values(stream=f)
             server_env.update(common_env)
-        
+
         # add vllm environment vars
         for key, value in self._env_vars.items():
             server_env[key] = str(value)
@@ -617,7 +620,7 @@ class VLLMBenchmark:
         with open(self.result_file, 'a') as f:
             f.write(result_line)
 
-    def _print_result(self, request_rate: int, num_iteration: int, batch_size: int, 
+    def _print_result(self, request_rate: int, num_iteration: int, batch_size: int,
                       concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
         result_line = (
@@ -626,7 +629,7 @@ class VLLMBenchmark:
             f"{output_length:>6d} {metrics['test_time']:>6.2f} "
             f"{metrics['ttft_mean']:10.2f} {metrics['ttft_median']:10.2f} {metrics['ttft_p99']:10.2f} "
             f"{metrics['tpot_mean']:10.2f} {metrics['tpot_median']:10.2f} {metrics['tpot_p99']:10.2f} "
-            f"{metrics['itl_mean']:10.2f} {metrics['itl_median']:10.2f } {metrics['itl_p99']:10.2f} "
+            f"{metrics['itl_mean']:10.2f} {metrics['itl_median']:10.2f} {metrics['itl_p99']:10.2f} "
             f"{metrics['e2el_mean']:10.2f} {metrics['request_throughput']:10.2f} "
             f"{metrics['output_token_throughput']:10.2f} {metrics['total_token_throughput']:10.2f} "
         )
@@ -645,13 +648,13 @@ class VLLMBenchmark:
         # if required iteration is not given, use default value
         # which enables to iterate following benchmark plan
         num_prompts = concurrency * num_iteration
-        
+
         base_cmd = []
         if not self._in_container:
             base_cmd.extend([self._container_runtime, "exec", self.container_name])
 
         base_cmd.extend([
-            "vllm", "bench", "serve", 
+            "vllm", "bench", "serve",
             "--model", f"{self._get_model_path()}",
             "--backend", "vllm",
             "--host", "localhost",
@@ -751,7 +754,7 @@ class VLLMBenchmark:
         """Warmup the server before benchmarking."""
         if self._is_dry_run:
             return
-        
+
         if self._is_no_warmup:
             logger.info("Skipping warmup as per user request")
             return
@@ -762,7 +765,7 @@ class VLLMBenchmark:
         if not self._in_container:
             warmup_cmd.extend(
                 [self._container_runtime, "exec", self.container_name])
-            
+
         warmup_cmd.extend([
             "vllm", "bench", "serve",
             "--model", f"{self._get_model_path()}",
@@ -862,7 +865,7 @@ def main():
             if hasattr(benchmark, "temp_compile_config_file") and \
                 os.path.exists(benchmark.temp_compile_config_file):
                     os.remove(benchmark.temp_compile_config_file)
-      
+
             # Ensure server process is killed on error
             if benchmark._in_container:
                 benchmark._cleanup_server_process()
@@ -872,4 +875,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
