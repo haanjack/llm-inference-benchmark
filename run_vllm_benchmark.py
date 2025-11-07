@@ -21,7 +21,8 @@ from huggingface_hub import snapshot_download
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,8 @@ class VLLMBenchmark:
         # Sanity Check
         if not self._test_plan_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find test plan: {self._test_plan_path}. Please check the plan name")
-        if not self._get_model_path().exists() and not self._is_dry_run:
+        # check host model path
+        if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model at {self._model_name} in {self._get_model_path()}.")
 
         # Result file headers
