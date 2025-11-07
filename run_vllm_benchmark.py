@@ -31,20 +31,22 @@ def get_args():
     parser = argparse.ArgumentParser(description='Run vLLM benchmarks')
 
     # benchmark configuration
-    parser.add_argument('--env-file', default="configs/envs/common", 
-                        help='Environment file name')
-    parser.add_argument('--vllm-image', 
-                        help='vLLM Docker image')
-    parser.add_argument('--model-path-or-id', 
-                        help='Model checkpoint path or model id in huggingface hub')
-    parser.add_argument('--model-root-dir', default="models", 
-                        help='Model root directory')
-    parser.add_argument('--model-config', 
+    parser.add_argument('--model-config', required=True, 
                         help='Model config file path')
+    parser.add_argument('--model-path-or-id', required=True,
+                        help='Model checkpoint path or model id in huggingface hub')
+    parser.add_argument('--vllm-image', required=True,
+                        help='vLLM Docker image.')
     parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan YAML file in configs/benchmark_plans/ (without .yaml extension)')
-    parser.add_argument('--gpu-devices', default="0", 
+    parser.add_argument('--env-file', default="configs/envs/common", 
+                        help='Environment file name')
+    parser.add_argument('--model-root-dir', default="models", 
+                        help='Model root directory')
+    parser.add_argument('--gpu-devices', default=None, 
                         help='Comma-separated GPU device IDs')
+    parser.add_argument('--num-gpus', default=None,
+                        help='Number of GPUs')
     parser.add_argument('--arch', default=None, 
                         help='Target GPU architecture for model config')
 
@@ -69,7 +71,8 @@ class VLLMBenchmark:
                  model_root_dir: str = None,
                  model_config: str = None,
                  test_plan: str = "test",
-                 gpu_devices: str = "0",
+                 gpu_devices: str = None,
+                 num_gpus: int = None,
                  arch: str = None,
                  no_warmup: bool = False,
                  dry_run: bool = False,
@@ -90,7 +93,13 @@ class VLLMBenchmark:
         self._vllm_image = vllm_image
         self._test_plan = test_plan
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
-        self._gpu_devices = gpu_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
+
+        # GPU configuration
+        self._system_config(gpu_devices, num_gpus)
+        # TODO: currently only support tp. apply dp, pp.
+        self._parallel_size = {
+            'tp': str(self._num_gpus)
+        }
 
         self._is_no_warmup = no_warmup
         self._is_dry_run = dry_run
@@ -101,15 +110,6 @@ class VLLMBenchmark:
             raise FileNotFoundError(f"Could not find test plan: {self._test_plan_path}. Please check the plan name")
         if not self._get_model_path().exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model at {self._model_name} in {self._get_model_path()}.")
-
-        # GPU configuration
-        gpu_array = self._gpu_devices.split(',')
-        if len(gpu_array) == 0:
-            raise AssertionError("No GPU is specified. Please specify at least one GPU.")
-        self._num_gpus = len(gpu_array) # TODO: currently only support tp. apply dp, pp.
-        self._parallel_size = {
-            'tp': str(self._num_gpus)
-        }
 
         # Result file headers
         self._headers = [
@@ -134,14 +134,32 @@ class VLLMBenchmark:
         self._setup_logging_dirs()
         self._cache_dir()
 
-        # VLLM port setup
-        self.vllm_port = 23400 + int(gpu_array[0]) if gpu_array else 23400
-
         self._metric_start_column_idx = 9
         self._print_benchmark_info()
 
         # For direct subprocess management
         self.server_process = None
+
+    def _system_config(self, gpu_devices: Union[str, None], num_gpus: Union[int, None]):
+        if gpu_devices is None and num_gpus is None:
+            raise AssertionError("GPU devices or number of GPUs must be specified.")
+        if gpu_devices is not None and num_gpus is not None:
+            raise AssertionError("gpu_devices or number of GPUs shoule be specified")
+        if gpu_devices is not None and num_gpus is None:
+            self._gpu_devices = gpu_devices # TODO: select based on os.environ.get("SLURM_JOB_GPUS", "")
+            gpu_array = self._gpu_devices.split(',')
+            self._num_gpus = len(gpu_array)
+            lead_gpu = int(gpu_array[0])
+        if gpu_devices is None and num_gpus is not None:
+            self._num_gpus = int(num_gpus)
+            self._gpu_devices = ",".join([f"{i}" for i in range(self._num_gpus)])
+            lead_gpu = 0
+        
+        if self._num_gpus == 0:
+            raise AssertionError("No GPU is specified. Please specify at least one GPU.")
+
+        # VLLM port setup
+        self.vllm_port = 23400 + lead_gpu
 
     def _cache_dir(self):
         """Configure vllm cache directory which to reduce compilation overhead."""
@@ -248,7 +266,8 @@ class VLLMBenchmark:
                 return Path(model_path_or_id)
             else:
                 model_id = Path(model_path_or_id).relative_to(model_root_dir)
-                download_model(str(model_id), model_root_dir)
+                if not self._is_dry_run:
+                    download_model(str(model_id), model_root_dir)
                 return Path(model_root_dir) / model_id
 
         # relative path
@@ -262,7 +281,8 @@ class VLLMBenchmark:
         
         # download from huggingface hub
         assert model_path_or_id.count('/') == 1, "Model id should be in the format of 'namespace/model_name'"
-        download_model(model_path_or_id, model_root_dir)
+        if not self._is_dry_run:
+            download_model(model_path_or_id, model_root_dir)
         return Path(model_root_dir) / model_id
 
     def _setup_container_name(self):
@@ -824,6 +844,7 @@ def main():
             vllm_image=args.vllm_image,
             test_plan=args.test_plan,
             gpu_devices=args.gpu_devices,
+            num_gpus=args.num_gpus,
             arch=args.arch,
             no_warmup=args.no_warmup,
             dry_run=args.dry_run,
