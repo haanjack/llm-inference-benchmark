@@ -6,11 +6,24 @@ This is benchmark script for extensive inference tests for various setups. This 
  - num concurrency
  - iteration based num prompts control
  - request rate control
- - `docker` and `podman` agnostic
+ - Execution support for `docker`, `podman`, and direct in-container runs
 
 In addition, this benchmark test tries to obey [AMD's vLLM V1 performance optimization](https://rocm.docs.amd.com/en/develop/how-to/rocm-for-ai/inference-optimization/vllm-optimization.html) guide and validation.
 
 This benchmark script generate vLLM server command, execute, and perform benchmark.
+
+## Execution Modes
+
+The script supports two main execution modes:
+
+1.  **Host Mode (Default):** The script runs on your host machine and launches a `docker` or `podman` container to run the vLLM server and benchmark client. This is the standard way to use the script.
+
+2.  **In-Container Mode (`--in-container`):** When you are already inside a container that has the vLLM environment and GPU access, you can use the `--in-container` flag. This tells the script to bypass `docker`/`podman` and execute the vLLM server and benchmark client as direct subprocesses.
+
+    ```bash
+    # Example of running inside a pre-configured container
+    python run_vllm_benchmark.py --in-container --model-config ...
+    ```
 
 ## Basic usage of test
 
@@ -96,6 +109,17 @@ There are several test cases in `configs/benchmark_plans`.
  - [prefill_heavy](./configs/benchmark_plans/prefill_heavy.yaml)
  - [hybrid](./configs/benchmark_plans/hybrid.yaml)
  - [throughput_control](./configs/benchmark_plans/throughput_control.yaml)
+
+### Model load or download
+There are multiple methods to specify benchmark model path for `--model-path`.
+
+1. Absolute path
+
+  - Model loads from specified model path. If the model does not exist in that path, this script tries to download model from huggingface hub.
+
+2. HuggingFace Model ID
+
+  - Users can specify huggingface hub's model id, then this benchmark script will find model based on `model_root_dir`. `model_root_dir` directs `${HOME}/models` by default, but you can change anywhere you want with `--model-root-dir` argument. If this benchmark could not find the model, then this script will try to download model from the huggingface hub. You might want to update `HF_TOKEN` environment variable in `configs/envs/common` file to get access to the huggingface hub.
 
 
 ## Benchmark Result
