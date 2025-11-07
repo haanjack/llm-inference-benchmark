@@ -621,13 +621,14 @@ class VLLMBenchmark:
                       concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
         result_line = (
-            f"{Path(self._model_config).stem.ljust(16)}\t{int(self._parallel_size.get('tp', '1')):>6d}"
-            f"{request_rate}{num_iteration:>6d}{batch_size:>6d}{concurrency:>6d}{input_length:>6d}{output_length:>6d}{metrics['test_time']:>6.2f}"
-            f"{metrics['ttft_mean']:10.2f}{metrics['ttft_median']:10.2f}{metrics['ttft_p99']:10.2f}"
-            f"{metrics['tpot_mean']:10.2f}{metrics['tpot_median']:10.2f}{metrics['tpot_p99']:10.2f}"
-            f"{metrics['itl_mean']:10.2f}{metrics['itl_median']:10.2f}{metrics['itl_p99']:10.2f}"
-            f"{metrics['e2el_mean']:10.2f}{metrics['request_throughput']:10.2f}"
-            f"{metrics['output_token_throughput']:10.2f}{metrics['total_token_throughput']:10.2f}"
+            f"{Path(self._model_config).stem.ljust(16)}\t{int(self._parallel_size.get('tp', '1')):>6d} "
+            f"{request_rate} {num_iteration:>6d} {batch_size:>6d} {concurrency:>6d} {input_length:>6d} "
+            f"{output_length:>6d} {metrics['test_time']:>6.2f} "
+            f"{metrics['ttft_mean']:10.2f} {metrics['ttft_median']:10.2f} {metrics['ttft_p99']:10.2f} "
+            f"{metrics['tpot_mean']:10.2f} {metrics['tpot_median']:10.2f} {metrics['tpot_p99']:10.2f} "
+            f"{metrics['itl_mean']:10.2f} {metrics['itl_median']:10.2f } {metrics['itl_p99']:10.2f} "
+            f"{metrics['e2el_mean']:10.2f} {metrics['request_throughput']:10.2f} "
+            f"{metrics['output_token_throughput']:10.2f} {metrics['total_token_throughput']:10.2f} "
         )
 
         logger.info(result_line)
