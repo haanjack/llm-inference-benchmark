@@ -523,13 +523,33 @@ class VLLMBenchmark:
         with open(self.server_log, 'w') as f:
             self.server_process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env)
 
+    def _is_server_process_alive(self) -> bool:
+        """Check if the server process (container or native) is still running."""
+        if self._is_dry_run:
+            return True
+
+        if self._in_container:
+            # Check process status
+            if not self.server_process:
+                return False
+
+            return self.server_process.poll() is None
+
+        else:
+            # check container status
+            try:
+                cmd = [self._container_runtime, "ps", "-q", "--filter", f"name=^{self.container_name}$"]
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5)
+                return bool(result.stdout.strip())
+            except Exception:
+                return False
+
     def _wait_for_server(self, timeout: int = 2400) -> bool:
         """Wait for the server to become available."""
         start_time = time.time()
+        last_log_time = start_time
 
         while True:
-            gpu_active = utils.get_gfx_clk_value(int(self._gpu_devices.split(',')[0])) > utils.GFX_CLK_IDLE_THRESHOLD
-
             # check if the server is ready
             try:
                 response = requests.get(f"http://localhost:{self.vllm_port}/v1/models")
@@ -540,20 +560,26 @@ class VLLMBenchmark:
             except requests.exceptions.RequestException:
                 pass
 
+            # check if the server is alive
+            if not self._is_server_process_alive():
+                logger.error("vLLM server process is not running.")
+                logger.error("Check server log for more details. %s", self.server_log)
+                return False
+
             # check timeout
-            if time.time() - start_time > timeout:
-                if not gpu_active:
-                    logger.error("vLLM server GPU is idle. Server failed to start.")
-                    return False
-                else:
-                    logger.info("vLLM server is still starting...")
-                    time.sleep(30)
-                    continue
+            elapsed_time = time.time() - start_time
+            if elapsed_time > timeout:
+                logger.error("Timeout waiting for vLLM server to start.")
+                logger.error("Server process is still alive, but endpoint is not responding.")
+                logger.error("Check server log for more details. %s", self.server_log)
+                return False
+
+            if time.time() - last_log_time > 60:
+                last_log_time = time.time()
+                logger.info("Waiting for vLLM server to start... %s seconds elapsed", elapsed_time)
+                last_log_time = time.time()
 
             time.sleep(5)
-
-        logger.error("Timeout waiting for vLLM server to start.")
-        return False
 
     def _check_existing_result(self,
                                request_rate: int,
