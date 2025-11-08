@@ -541,7 +541,7 @@ class VLLMBenchmark:
                 cmd = [self._container_runtime, "ps", "-q", "--filter", f"name=^{self.container_name}$"]
                 result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5)
                 return bool(result.stdout.strip())
-            except Exception:
+            except (subprocess.SubprocessError, FileNotFoundError):
                 return False
 
     def _wait_for_server(self, timeout: int = 2400) -> bool:
@@ -576,8 +576,7 @@ class VLLMBenchmark:
 
             if time.time() - last_log_time > 60:
                 last_log_time = time.time()
-                logger.info("Waiting for vLLM server to start... %s seconds elapsed", elapsed_time)
-                last_log_time = time.time()
+                logger.info("Waiting for vLLM server to start... %s seconds elapsed", int(elapsed_time))
 
             time.sleep(5)
 
