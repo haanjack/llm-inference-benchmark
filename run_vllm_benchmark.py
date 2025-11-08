@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 import re
 import requests
-import utils
 import tempfile
 
 from huggingface_hub import snapshot_download
