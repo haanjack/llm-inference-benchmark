@@ -229,9 +229,14 @@ class VLLMBenchmark:
             logger.info("No architecture specified. Skipping architecture-specific environment variables.")
 
         # apply tp specific arguments
+        print("A")
         parallel_dict = model_config.get('parallel', {})
+        print(parallel_dict)
+        print(self._num_gpus)
         if self._num_gpus in parallel_dict:
-            self._vllm_args.update(parallel_dict[self._num_gpus])
+            if parallel_dict[self._num_gpus]:
+                self._vllm_args.update(parallel_dict[self._num_gpus])
+        print("B")
 
         vllm_server_args = model_config.get('vllm_server_args', {})
         self._vllm_args.update(vllm_server_args)
