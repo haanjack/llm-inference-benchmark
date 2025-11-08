@@ -738,11 +738,11 @@ class VLLMBenchmark:
 
             # Generate all combinations
             for rate in request_rates:
-                for concurrency in concurrencies:
-                    for in_len in input_lengths:
-                        for out_len in output_lengths:
-                            for num_iter in num_iterations:
-                                for batch_size in batch_sizes:
+                for batch_size in batch_sizes:
+                    for num_iter in num_iterations:
+                        for in_len in input_lengths:
+                            for out_len in output_lengths:
+                                for concurrency in concurrencies:
                                     test_plan = {
                                         'request_rate': rate,
                                         'concurrency': concurrency,
