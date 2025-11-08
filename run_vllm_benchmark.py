@@ -112,16 +112,29 @@ class VLLMBenchmark:
         if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model at {self._model_name} in {self._get_model_path()}.")
 
-        # Result file headers
-        self._headers = [
-            "env,TP Size,",
-            "Request Rate,Num. Iter,Client Count,MaxNumSeqs,Input Length,Output Length,Test Time,",
-            "Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),",
-            "Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),",
-            "Mean ITL (ms),Median ITL (ms),P99 ITL (ms),",
-            "Mean E2EL (ms),Median E2EL (ms),P99 E2EL (ms),",
-            "Request Throughput (req/s),Output token throughput (tok/s),",
-            "Total Token throughput (tok/s)"
+        # Column definitions (headers and widths) for console and CSV
+        self._columns = [
+            # Configs
+            ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Iter", 8),
+            ("Batch", 8), ("Conc", 8), ("In Len", 8), ("Out Len", 8),
+            ("Test Time", 8),
+            # TTFT
+            ("TTFT Mean", 10), ("TTFT Med", 10), ("TTFT P99", 10),
+            # TPOT
+            ("TPOT Mean", 10), ("TPOT Med", 10), ("TPOT P99", 10),
+            # ITL
+            ("ITL Mean", 10), ("ITL Med", 10), ("ITL P99", 10),
+            # E2E Latency
+            ("E2E Mean", 10), ("E2E Med", 10), ("E2E P99", 10),
+            # Throughput
+            ("Req/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
+        ]
+        self._csv_headers = [
+            "Model Config", "TP Size", "Request Rate", "Num. Iter", "Batch Size", "Concurrency",
+            "Input Length", "Output Length", "Test Time(s)", "Mean TTFT(ms)", "Median TTFT(ms)",
+            "P99 TTFT(ms)", "Mean TPOT(ms)", "Median TPOT(ms)", "P99 TPOT(ms)", "Mean ITL(ms)",
+            "Median ITL(ms)", "P99 ITL(ms)", "Mean E2EL(ms)", "Median E2EL(ms)", "P99 E2EL(ms)",
+            "Request Tput(req/s)", "Output Tput(tok/s)", "Total Tput(tok/s)"
         ]
 
         # determine docker or podman
@@ -135,7 +148,6 @@ class VLLMBenchmark:
         self._setup_logging_dirs()
         self._cache_dir()
 
-        self._metric_start_column_idx = 9
         self._print_benchmark_info()
 
         # For direct subprocess management
@@ -326,7 +338,7 @@ class VLLMBenchmark:
     def _init_result_file(self):
         """Initialize the result file with headers."""
         with open(self.result_file, 'w') as f:
-            f.write(''.join(self._headers) + '\n')
+            f.write(','.join(self._csv_headers) + '\n')
 
     def _get_model_path(self) -> str:
         """Select proper model path following execution mode"""
@@ -338,11 +350,15 @@ class VLLMBenchmark:
             return
 
         # print header line to console
-        headers_split = ''.join(self._headers).split(',')
-        headers_line = [os.path.basename(headers_split[0]).ljust(16)]
-        headers_line += [h.rjust(8) for h in headers_split[1:self._metric_start_column_idx]]
-        headers_line += [h.rjust(10) for h in headers_split[self._metric_start_column_idx:]]
-        logger.info('\t'.join(headers_line))
+        header_line1 = []
+        header_line2 = []
+        for header, width in self._columns:
+            parts = header.split()
+            header_line1.append(parts[0].rjust(width))
+            header_line2.append(parts[1].rjust(width) if len(parts) > 1 else ' '.rjust(width))
+
+        logger.info(' '.join(header_line1))
+        logger.info(' '.join(header_line2))
 
     def _build_vllm_args(self) -> str:
         """Construct VLLM arguments based on environment variables."""
@@ -587,7 +603,7 @@ class VLLMBenchmark:
                                num_iteration: int,
                                batch_size: int) -> bool:
         """Check if results already exist for this configuration."""
-        if not self.result_file.exists():
+        if not self.result_file.exists() or self._is_dry_run:
             return False
 
         search_str = f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},{request_rate},{num_iteration},{batch_size},{concurrency},{input_length},{output_length}"
@@ -598,11 +614,7 @@ class VLLMBenchmark:
             with open(self.result_file, 'r') as f:
                 for line in f:
                     if search_str in line:
-                        line = line.strip()
-                        s_line = [os.path.basename(line.split(',')[0]).ljust(16)]
-                        s_line += [h.rjust(8) for h in line.split(',')[1:self._metric_start_column_idx]]
-                        s_line += [h.rjust(10) for h in line.split(',')[self._metric_start_column_idx:]]
-                        logger.info(f"{''.join(s_line)}")
+                        logger.info(self._format_result_for_console(line.strip().split(',')))
         return search_result
 
     def _extract_metrics(self, log_file: Path) -> Dict[str, float]:
@@ -652,21 +664,29 @@ class VLLMBenchmark:
         with open(self.result_file, 'a') as f:
             f.write(result_line)
 
+    def _format_result_for_console(self, values: List[str]) -> str:
+        """Formats a list of result values for console output."""
+        if len(values) != len(self._columns):
+            logger.warning("Mismatch between result values and column definitions.")
+            return ' '.join(values)
+
+        formatted_values = [val.rjust(width) for val, (header, width) in zip(values, self._columns)]
+        formatted_values[0] = os.path.basename(values[0]).ljust(self._columns[0][1])
+        return ' '.join(formatted_values)
+
     def _print_result(self, request_rate: int, num_iteration: int, batch_size: int,
                       concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
-        result_line = (
-            f"{Path(self._model_config).stem.ljust(16)}\t{int(self._parallel_size.get('tp', '1')):>6d} "
-            f"{request_rate} {num_iteration:>6d} {batch_size:>6d} {concurrency:>6d} {input_length:>6d} "
-            f"{output_length:>6d} {metrics['test_time']:>6.2f} "
-            f"{metrics['ttft_mean']:10.2f} {metrics['ttft_median']:10.2f} {metrics['ttft_p99']:10.2f} "
-            f"{metrics['tpot_mean']:10.2f} {metrics['tpot_median']:10.2f} {metrics['tpot_p99']:10.2f} "
-            f"{metrics['itl_mean']:10.2f} {metrics['itl_median']:10.2f} {metrics['itl_p99']:10.2f} "
-            f"{metrics['e2el_mean']:10.2f} {metrics['request_throughput']:10.2f} "
-            f"{metrics['output_token_throughput']:10.2f} {metrics['total_token_throughput']:10.2f} "
-        )
-
-        logger.info(result_line)
+        values = [
+            Path(self._model_config).stem, str(self._parallel_size.get('tp', '1')),
+            str(request_rate), str(num_iteration), str(batch_size), str(concurrency), str(input_length), str(output_length), f"{metrics['test_time']:.2f}",
+            f"{metrics['ttft_mean']:.2f}", f"{metrics['ttft_median']:.2f}", f"{metrics['ttft_p99']:.2f}",
+            f"{metrics['tpot_mean']:.2f}", f"{metrics['tpot_median']:.2f}", f"{metrics['tpot_p99']:.2f}",
+            f"{metrics['itl_mean']:.2f}", f"{metrics['itl_median']:.2f}", f"{metrics['itl_p99']:.2f}",
+            f"{metrics['e2el_mean']:.2f}", f"{metrics['e2el_median']:.2f}", f"{metrics['e2el_p99']:.2f}",
+            f"{metrics['request_throughput']:.2f}", f"{metrics['output_token_throughput']:.2f}", f"{metrics['total_token_throughput']:.2f}"
+        ]
+        logger.info(self._format_result_for_console(values))
 
     def run_single_benchmark(self,
                              request_rate: int,
