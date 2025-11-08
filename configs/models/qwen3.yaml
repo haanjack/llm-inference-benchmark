@@ -16,10 +16,20 @@ vllm_server_args:
   # gpu-memory-utilization: 0.95
   # max-num-batched-token: 8192
   # swap-space: 16
-  block-size: 64
-  enable-expoert-parallel: true
   # no-enable-prefix-caching: true
   # async-scheduling: true
+
+parallel:
+  1: # tp=1
+  2: # tp=2
+    block-size: 64
+    enable-expoert-parallel: true
+  4: # tp=4
+    block-size: 64
+    enable-expoert-parallel: true
+  8: # tp=8
+    block-size: 64
+    enable-expoert-parallel: true
 
 compilation_config:
   cudagraph_mode: "FULL_AND_PIECEWISE"

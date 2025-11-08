@@ -7,9 +7,9 @@ env:
 
 vllm_server_args:
   # Arguments for the vLLM server
-  quantization: fp8
+  quantization: auto
   kv-cache-dtype: auto
-  
+
   # Add other vLLM server arguments here
   # example:
   # max_model_len: 1024
@@ -19,6 +19,12 @@ vllm_server_args:
   # block-size: 64
   # no-enable-prefix-caching: true
   # async-scheduling: true
+
+tp_specific_overrides:
+  1: # tp=1
+  2: # tp=2
+  4: # tp=4
+  8: # tp=8
 
 compilation_config:
   cudagraph_mode: "FULL_AND_PIECEWISE"

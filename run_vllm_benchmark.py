@@ -85,10 +85,17 @@ class VLLMBenchmark:
         self._vllm_args = {}
         self._compilation_config = {}
         self._arch = arch
-        self._model_config  = model_config
+        self._model_config = model_config
         self._is_no_warmup = no_warmup
         self._is_dry_run = dry_run
         self._in_container = in_container
+
+        # GPU configuration
+        self._system_config(gpu_devices, num_gpus)
+        # TODO: currently only support tp. apply dp, pp.
+        self._parallel_size = {
+            'tp': str(self._num_gpus)
+        }
 
         self._load_model_config()
 
@@ -98,13 +105,6 @@ class VLLMBenchmark:
         self._vllm_image = vllm_image
         self._test_plan = test_plan
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
-
-        # GPU configuration
-        self._system_config(gpu_devices, num_gpus)
-        # TODO: currently only support tp. apply dp, pp.
-        self._parallel_size = {
-            'tp': str(self._num_gpus)
-        }
 
         # Sanity Check
         if not self._test_plan_path.exists() and not self._is_dry_run:
@@ -227,6 +227,11 @@ class VLLMBenchmark:
                 logger.warning(f"Architecture '{self._arch}' not found in model config arch_specific_params. Skipping architecture-specific environment variables.")
         else:
             logger.info("No architecture specified. Skipping architecture-specific environment variables.")
+
+        # apply tp specific arguments
+        parallel_dict = model_config.get('parallel', {})
+        if self._num_gpus in parallel_dict:
+            self._vllm_args.update(parallel_dict[self._num_gpus])
 
         vllm_server_args = model_config.get('vllm_server_args', {})
         self._vllm_args.update(vllm_server_args)

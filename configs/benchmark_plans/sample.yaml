@@ -1,29 +1,15 @@
 test_scenarios:
-  - name: "1k input-1k output"
+  - name: "1k/8k input-1k output"
     description: "Balanced test with 1k input and 1k output tokens"
     request_rate: 0  # inf
     concurrency: [1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 192, 256]
+    input_length: [1024, 8192]
+    output_length: 1024
+    num_iteration: 8
+  - name: "1k input-8k output"
+    description: "Test focused on prefill performance with short output"
+    request_rate: 0  # inf
+    concurrency: [1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 192, 256]
     input_length: 1024
-    output_length: 1024
-    num_iteration: 8
-  - name: "2k input-1k output"
-    description: "Test focused on prefill performance with short output"
-    request_rate: 0  # inf
-    concurrency: [1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 192, 256]
-    input_length: 2048
-    output_length: 1024
-    num_iteration: 8
-  - name: "4k input-1k output"
-    description: "Test focused on prefill performance with short output"
-    request_rate: 0  # inf
-    concurrency: [1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 192, 256]
-    input_length: 4096
-    output_length: 1024
-    num_iteration: 8
-  - name: "8k input-1k output"
-    description: "Test focused on prefill performance with short output"
-    request_rate: 0  # inf
-    concurrency: [1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 192, 256]
-    input_length: 8192
-    output_length: 1024
+    output_length: 8192
     num_iteration: 8

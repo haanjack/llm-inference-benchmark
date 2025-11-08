@@ -21,6 +21,15 @@ vllm_server_args:
   no-enable-prefix-caching: true
   # async-scheduling: true
 
+parallel:
+  1: # tp=1 
+  2: # tp=2
+    enable-expert-parallel: true
+  4: # tp=4
+    enable-expert-parallel: true
+  8: # tp=8
+    enable-expert-parallel: true
+
 compilation_config:
   # Used when VLLM_ROCM_USE_AITER=1
   cudagraph_mode: "FULL_AND_PIECEWISE"
