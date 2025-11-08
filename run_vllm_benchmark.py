@@ -543,7 +543,7 @@ class VLLMBenchmark:
             except (subprocess.SubprocessError, FileNotFoundError):
                 return False
 
-    def _wait_for_server(self, timeout: int = 2400) -> bool:
+    def _wait_for_server(self, timeout: int = 7_200) -> bool:
         """Wait for the server to become available."""
         start_time = time.time()
         last_log_time = start_time
