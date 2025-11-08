@@ -426,6 +426,7 @@ class VLLMBenchmark:
             "--host", "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
+            "--no-enable-prefix-caching",
             "--tensor-parallel-size", f"{self._parallel_size.get('tp', '1')}",
             "--port", f"{self.vllm_port}",
         ])
