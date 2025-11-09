@@ -670,8 +670,8 @@ class VLLMBenchmark:
             logger.warning("Mismatch between result values and column definitions.")
             return ' '.join(values)
 
-        formatted_values = [val.rjust(width) for val, (header, width) in zip(values, self._columns)]
-        formatted_values[0] = os.path.basename(values[0]).ljust(self._columns[0][1])
+        formatted_values = [os.path.basename(values[0]).ljust(self._columns[0][1])]
+        formatted_values.extend(val.rjust(width) for val, (_, width) in zip(values[1:], self._columns[1:]))
         return ' '.join(formatted_values)
 
     def _print_result(self, request_rate: int, num_iteration: int, batch_size: int,
