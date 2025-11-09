@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import re
 import requests
 import tempfile
+import itertools
 
 from huggingface_hub import snapshot_download
 
@@ -412,7 +413,7 @@ class VLLMBenchmark:
         subprocess.run([self._container_runtime, "rm", "-f", container_name],
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def get_server_run_cmd(self) -> str:
+    def get_server_run_cmd(self, no_enable_prefix_caching: bool) -> str:
         """Construct the Docker run command for the vLLM server."""
         group_option="keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
         cmd = [
@@ -444,17 +445,19 @@ class VLLMBenchmark:
             "--host", "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
-            "--no-enable-prefix-caching",
             "--tensor-parallel-size", f"{self._parallel_size.get('tp', '1')}",
             "--port", f"{self.vllm_port}",
         ])
+
+        if no_enable_prefix_caching:
+            cmd.append("--no-enable-prefix-caching")
 
         # get extra vLLM args
         cmd.extend(self._build_vllm_args().split())
 
         return cmd
 
-    def get_server_run_cmd_direct(self) -> str:
+    def get_server_run_cmd_direct(self, no_enable_prefix_caching: bool) -> str:
         """Construct the direct run command for the vLLM server."""
         cmd = [
             "vllm", "serve",
@@ -469,21 +472,88 @@ class VLLMBenchmark:
         # get extra vLLM args
         cmd.extend(self._build_vllm_args().split())
 
-        return cmd
+        if no_enable_prefix_caching:
+            cmd.append("--no-enable-prefix-caching")
 
-    def _start_server(self):
+        return cmd
+    
+    def _load_test_plan(self):
+        """Load test configuration from YAML file."""
+        yaml_path = Path("configs/benchmark_plans") / f"{self._test_plan}.yaml"
+        if not yaml_path.exists():
+            raise FileNotFoundError(f"Test plan not found: {yaml_path}")
+
+        with open(yaml_path, mode="r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        # set dataset-name as random if it is not specified
+        dataset_name = config.get('dataset_name', 'random')
+
+        # vllm server will have no-enable-prefix-caching argument if dataset is random
+        no_enable_prefix_caching = (dataset_name == 'random')
+
+        def ensure_list(value: Union[int, float, list, None], default: list) -> list:
+            """Ensure the value is a list, handling single numbers or None."""
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return [value]
+            return value
+
+        test_plans = []
+        for scenario in config.get('test_scenarios', []):
+            # Convert all parameters to lists if they're not already
+            request_rates = ensure_list(scenario.get('request_rate'), [0])
+            concurrencies = ensure_list(scenario.get('concurrency'), [1])
+            input_lengths = ensure_list(scenario.get('input_length'), [512])
+            output_lengths = ensure_list(scenario.get('output_length'), [128])
+            num_iterations = ensure_list(scenario.get('num_iteration'), [8])
+            batch_sizes = ensure_list(scenario.get('batch_size'), [256])
+
+            # dataset
+            dataset_name_ = scenario.get('dataset_name', dataset_name)
+            if dataset_name == 'random' and dataset_name_ != 'random':
+                logger.warning('Benchmark with non-random dataset with no-enable-prefix-caching.')
+                logger.warning('Benchmark result may not be accurate.')
+
+            # Generate all combinations
+            param_combinations = itertools.product(
+                request_rates,
+                batch_sizes,
+                num_iterations,
+                input_lengths,
+                output_lengths,
+                concurrencies
+            )
+            for rate, batch_size, num_iter, in_len, out_len, concurrency in param_combinations:
+                test_plans.append({
+                    'request_rate': rate,
+                    'concurrency': concurrency,
+                    'input_length': in_len,
+                    'output_length': out_len,
+                    'num_iteration': num_iter,
+                    'batch_size': batch_size,
+                    'dataset_name': dataset_name_,
+                })
+
+        if not test_plans:
+            raise ValueError("No test scenarios found in test plan")
+
+        return test_plans, no_enable_prefix_caching
+
+    def _start_server(self, no_enable_prefix_caching: bool):
         """Start the vLLM server, either in a container or as a direct process."""
         if self._in_container:
-            self._start_server_direct()
+            self._start_server_direct(no_enable_prefix_caching)
         else:
-            self._start_server_container()
+            self._start_server_container(no_enable_prefix_caching)
 
-    def _start_server_container(self):
+    def _start_server_container(self, no_enable_prefix_caching: bool):
         """Start the vLLM server in a container."""
         if not self._is_dry_run:
             self._cleanup_container(self.container_name)
 
-        cmd = self.get_server_run_cmd()
+        cmd = self.get_server_run_cmd(no_enable_prefix_caching)
 
         if self._is_dry_run:
             logger.info("Dry run - Docker server command:")
@@ -514,9 +584,9 @@ class VLLMBenchmark:
             # Store process IDs for later cleanup if needed
             self.log_processes = [stdout_process, stderr_process]
 
-    def _start_server_direct(self):
+    def _start_server_direct(self, no_enable_prefix_caching: bool):
         """Start the vLLM server as a direct subprocess."""
-        cmd = self.get_server_run_cmd_direct()
+        cmd = self.get_server_run_cmd_direct(no_enable_prefix_caching)
 
         if self._is_dry_run:
             logger.info("Dry run - Direct server command:")
@@ -759,60 +829,6 @@ class VLLMBenchmark:
         self._save_results(
             request_rate, num_iteration, batch_size, concurrency, input_length, output_length, metrics)
 
-    def _load_test_plan(self):
-        """Load test configuration from YAML file."""
-        yaml_path = Path("configs/benchmark_plans") / f"{self._test_plan}.yaml"
-        if not yaml_path.exists():
-            raise FileNotFoundError(f"Test plan not found: {yaml_path}")
-
-        with open(yaml_path, mode="r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-
-        # set dataset-name as random if it is not specified
-        dataset_name = config.get('dataset-name', None)
-        if dataset_name is None:
-            dataset_name = 'random'
-
-        test_plans = []
-        for scenario in config.get('test_scenarios', []):
-            # Convert all parameters to lists if they're not already
-            request_rates = [scenario.get('request_rate')] if isinstance(scenario.get('request_rate'), (int, float)) \
-                else scenario.get('request_rate', [0])
-            concurrencies = [scenario.get('concurrency')] if isinstance(scenario.get('concurrency'), int) \
-                else scenario.get('concurrency', [1])
-            input_lengths = [scenario.get('input_length')] if isinstance(scenario.get('input_length'), int) \
-                else scenario.get('input_length', [512])
-            output_lengths = [scenario.get('output_length')] if isinstance(scenario.get('output_length'), int) \
-                else scenario.get('output_length', [128])
-            num_iterations = [scenario.get('num_iteration')] if isinstance(scenario.get('num_iteration'), int) \
-                else scenario.get('num_iteration', [8])
-            batch_sizes = [scenario.get('batch_size')] if isinstance(scenario.get('batch_size'), int) \
-                else scenario.get('batch_size', [256])
-            dataset_name_ = scenario.get('dataset_name', dataset_name)
-
-            # Generate all combinations
-            for rate in request_rates:
-                for batch_size in batch_sizes:
-                    for num_iter in num_iterations:
-                        for in_len in input_lengths:
-                            for out_len in output_lengths:
-                                for concurrency in concurrencies:
-                                    test_plan = {
-                                        'request_rate': rate,
-                                        'concurrency': concurrency,
-                                        'input_length': in_len,
-                                        'output_length': out_len,
-                                        'num_iteration': num_iter,
-                                        'batch_size': batch_size,
-                                        'dataset_name': dataset_name_,
-                                    }
-                                    test_plans.append(test_plan)
-
-        if not test_plans:
-            raise ValueError("No test scenarios found in test plan")
-
-        return test_plans
-
     def _warmup_server(self):
         """Warmup the server before benchmarking."""
         if self._is_dry_run:
@@ -857,9 +873,9 @@ class VLLMBenchmark:
         elapsed_time = time.time() - start_time
         logger.info(f"Warmup complete in {elapsed_time:.2f} seconds.")
 
-    def _run_vllm_benchmark(self):
+    def _run_vllm_benchmark(self, test_plans: List[Dict]):
         """Run benchmarks using vLLM test plans."""
-        for test_plan in self._load_test_plan():
+        for test_plan in test_plans:
             try:
                 self.run_single_benchmark(**test_plan)
 
@@ -877,9 +893,11 @@ class VLLMBenchmark:
         """Run the full benchmark suite."""
         if self._num_gpus == 0:
             raise ValueError("No GPU is allocated")
+        
+        test_plans, no_enable_prefix_caching = self._load_test_plan()
 
         # Start server for this configuration
-        self._start_server()
+        self._start_server(no_enable_prefix_caching)
         if not self._is_dry_run:
             if not self._wait_for_server():
                 raise RuntimeError("Server failed to start")
@@ -889,7 +907,7 @@ class VLLMBenchmark:
         self._warmup_server()
         self._print_header()
 
-        self._run_vllm_benchmark()
+        self._run_vllm_benchmark(test_plans)
 
         # Cleanup container after this configuration
         if self._in_container:
