@@ -237,10 +237,6 @@ class VLLMBenchmark:
         vllm_server_args = model_config.get('vllm_server_args', {})
         self._vllm_args.update(vllm_server_args)
 
-        # set dataset-name as random if it is not specified
-        if 'dataset-name' not in self._vllm_args:
-            self._vllm_args['dataset-name'] = 'random'
-
         # set compilation config
         compilation_config = model_config.get('compilation_config', {})
         self._compilation_config = compilation_config
@@ -681,7 +677,8 @@ class VLLMBenchmark:
                              input_length: int,
                              output_length: int,
                              num_iteration: int,
-                             batch_size: int):
+                             batch_size: int,
+                             dataset_name: str):
         """Run a single benchmark iteration."""
 
         # if required iteration is not given, use default value
@@ -698,6 +695,7 @@ class VLLMBenchmark:
             "--backend", "vllm",
             "--host", "localhost",
             f"--port={self.vllm_port}",
+            f"--dataset-name={dataset_name}",
             "--ignore-eos",
             "--trust-remote-code",
             f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
@@ -747,8 +745,13 @@ class VLLMBenchmark:
         if not yaml_path.exists():
             raise FileNotFoundError(f"Test plan not found: {yaml_path}")
 
-        with open(yaml_path) as f:
+        with open(yaml_path, mode="r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
+
+        # set dataset-name as random if it is not specified
+        dataset_name = config.get('dataset-name', None)
+        if dataset_name is None:
+            dataset_name = 'random'
 
         test_plans = []
         for scenario in config.get('test_scenarios', []):
@@ -765,6 +768,7 @@ class VLLMBenchmark:
                 else scenario.get('num_iteration', [8])
             batch_sizes = [scenario.get('batch_size')] if isinstance(scenario.get('batch_size'), int) \
                 else scenario.get('batch_size', [256])
+            dataset_name_ = scenario.get('dataset_name', dataset_name)
 
             # Generate all combinations
             for rate in request_rates:
@@ -780,6 +784,7 @@ class VLLMBenchmark:
                                         'output_length': out_len,
                                         'num_iteration': num_iter,
                                         'batch_size': batch_size,
+                                        'dataset_name': dataset_name_,
                                     }
                                     test_plans.append(test_plan)
 
