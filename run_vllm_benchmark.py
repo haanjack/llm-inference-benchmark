@@ -233,9 +233,15 @@ class VLLMBenchmark:
             if parallel_dict[self._num_gpus]:
                 self._vllm_args.update(parallel_dict[self._num_gpus])
 
+        # apply vllm arguments
         vllm_server_args = model_config.get('vllm_server_args', {})
         self._vllm_args.update(vllm_server_args)
 
+        # set dataset-name as random if it is not specified
+        if 'dataset-name' not in self._vllm_args:
+            self._vllm_args['dataset-name'] = 'random'
+
+        # set compilation config
         compilation_config = model_config.get('compilation_config', {})
         self._compilation_config = compilation_config
 
@@ -692,7 +698,6 @@ class VLLMBenchmark:
             "--backend", "vllm",
             "--host", "localhost",
             f"--port={self.vllm_port}",
-            "--dataset-name", "random",
             "--ignore-eos",
             "--trust-remote-code",
             f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
