@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import re
 import requests
 import tempfile
+import itertools
 
 from huggingface_hub import snapshot_download
 
@@ -470,55 +471,54 @@ class VLLMBenchmark:
             config = yaml.safe_load(f)
 
         # set dataset-name as random if it is not specified
-        dataset_name = config.get('dataset_name', None)
-        print(config)
-        print(":::::::::::::::::")
-        print(dataset_name)
-        if dataset_name is None:
-            # vllm server will have no-enable-prefix-caching argument by default
-            dataset_name = 'random'
+        dataset_name = config.get('dataset_name', 'random')
 
-        no_enable_prefix_caching = False
-        if dataset_name == 'random':
-            no_enable_prefix_caching = True
+        # vllm server will have no-enable-prefix-caching argument if dataset is random
+        no_enable_prefix_caching = (dataset_name == 'random')
+
+        def ensure_list(value: Union[int, float, list, None], default: list) -> list:
+            """Ensure the value is a list, handling single numbers or None."""
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return [value]
+            return value
 
         test_plans = []
         for scenario in config.get('test_scenarios', []):
             # Convert all parameters to lists if they're not already
-            request_rates = [scenario.get('request_rate')] if isinstance(scenario.get('request_rate'), (int, float)) \
-                else scenario.get('request_rate', [0])
-            concurrencies = [scenario.get('concurrency')] if isinstance(scenario.get('concurrency'), int) \
-                else scenario.get('concurrency', [1])
-            input_lengths = [scenario.get('input_length')] if isinstance(scenario.get('input_length'), int) \
-                else scenario.get('input_length', [512])
-            output_lengths = [scenario.get('output_length')] if isinstance(scenario.get('output_length'), int) \
-                else scenario.get('output_length', [128])
-            num_iterations = [scenario.get('num_iteration')] if isinstance(scenario.get('num_iteration'), int) \
-                else scenario.get('num_iteration', [8])
-            batch_sizes = [scenario.get('batch_size')] if isinstance(scenario.get('batch_size'), int) \
-                else scenario.get('batch_size', [256])
+            request_rates = ensure_list(scenario.get('request_rate'), [0])
+            concurrencies = ensure_list(scenario.get('concurrency'), [1])
+            input_lengths = ensure_list(scenario.get('input_length'), [512])
+            output_lengths = ensure_list(scenario.get('output_length'), [128])
+            num_iterations = ensure_list(scenario.get('num_iteration'), [8])
+            batch_sizes = ensure_list(scenario.get('batch_size'), [256])
+
+            # dataset
             dataset_name_ = scenario.get('dataset_name', dataset_name)
             if dataset_name == 'random' and dataset_name_ != 'random':
                 logger.warning('Benchmark with non-random dataset with no-enable-prefix-caching.')
                 logger.warning('Benchmark result may not be accurate.')
 
             # Generate all combinations
-            for rate in request_rates:
-                for batch_size in batch_sizes:
-                    for num_iter in num_iterations:
-                        for in_len in input_lengths:
-                            for out_len in output_lengths:
-                                for concurrency in concurrencies:
-                                    test_plan = {
-                                        'request_rate': rate,
-                                        'concurrency': concurrency,
-                                        'input_length': in_len,
-                                        'output_length': out_len,
-                                        'num_iteration': num_iter,
-                                        'batch_size': batch_size,
-                                        'dataset_name': dataset_name_,
-                                    }
-                                    test_plans.append(test_plan)
+            param_combinations = itertools.product(
+                request_rates,
+                batch_sizes,
+                num_iterations,
+                input_lengths,
+                output_lengths,
+                concurrencies
+            )
+            for rate, batch_size, num_iter, in_len, out_len, concurrency in param_combinations:
+                test_plans.append({
+                    'request_rate': rate,
+                    'concurrency': concurrency,
+                    'input_length': in_len,
+                    'output_length': out_len,
+                    'num_iteration': num_iter,
+                    'batch_size': batch_size,
+                    'dataset_name': dataset_name_,
+                })
 
         if not test_plans:
             raise ValueError("No test scenarios found in test plan")
