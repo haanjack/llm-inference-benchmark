@@ -710,14 +710,14 @@ class VLLMBenchmark:
 
         cmd = base_cmd
 
-        # Check if this configuration has already been tested
-        if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_iteration, batch_size):
-            # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
-            return
-
         if self._is_dry_run:
             logger.info(f"Dry run - Benchmark command for r{request_rate}_n{num_iteration}_c{concurrency}_i{input_length}_o{output_length}")
             logger.info(" ".join(cmd))
+            return
+
+        # Check if this configuration has already been tested
+        if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_iteration, batch_size):
+            # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
             return
 
         # TODO: env directory will have more parallelism size info
