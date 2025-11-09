@@ -353,7 +353,7 @@ class VLLMBenchmark:
         header_line1 = []
         header_line2 = []
         for header, width in self._columns:
-            parts = header.split()
+            parts = header.split(' ', 1)
             header_line1.append(parts[0].rjust(width))
             header_line2.append(parts[1].rjust(width) if len(parts) > 1 else ' '.rjust(width))
 
