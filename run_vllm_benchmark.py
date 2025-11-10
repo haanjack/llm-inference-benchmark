@@ -887,7 +887,7 @@ class VLLMBenchmark:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with open(log_file, 'w', encoding='utf-8') as f:
             f.write(f"=== Benchmark: request_rate={request_rate}, num_prompts={num_prompts}, \
-                     batch_size={batch_size}, oncurrency={concurrency}, input_len={input_length}, output_len={output_length} ===\n")
+                     batch_size={batch_size}, concurrency={concurrency}, input_len={input_length}, output_len={output_length} ===\n")
 
         # Run the benchmark command and redirect output to log file
         with open(log_file, 'w', encoding='utf-8') as f:
