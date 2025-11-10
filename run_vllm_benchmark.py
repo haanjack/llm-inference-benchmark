@@ -116,19 +116,19 @@ class VLLMBenchmark:
         # Column definitions (headers and widths) for console and CSV
         self._columns = [
             # Configs
-            ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11), # noqa
+            ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11),
             ("Batch", 8), ("Conc", 8), ("In Len", 8), ("Out Len", 8),
-            ("Test Time", 8),
+            ("Test Time(s)", 12),
             # TTFT
-            ("TTFT Mean", 10), ("TTFT Med", 10), ("TTFT P99", 10),
+            ("TTFT Mean(ms)", 13), ("TTFT Med(ms)", 13), ("TTFT P99(ms)", 12),
             # TPOT
-            ("TPOT Mean", 10), ("TPOT Med", 10), ("TPOT P99", 10),
+            ("TPOT Mean(ms)", 13), ("TPOT Med(ms)", 13), ("TPOT P99(ms)", 12),
             # ITL
-            ("ITL Mean", 10), ("ITL Med", 10), ("ITL P99", 10),
+            ("ITL Mean(ms)", 13), ("ITL Med(ms)", 13), ("ITL P99(ms)", 12),
             # E2E Latency
-            ("E2E Mean", 10), ("E2E Med", 10), ("E2E P99", 10),
+            ("E2E Mean(ms)", 13), ("E2E Med(ms)", 13), ("E2E P99(ms)", 12),
             # Throughput
-            ("Req Tput", 10), ("Out Tput", 10), ("Total Tput", 10)
+            ("Req Tok/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 12)
         ]
         self._csv_headers = [
             "Model Config", "TP Size", "Request Rate", "Num. Prompts", "Batch Size", "Concurrency",
@@ -747,7 +747,7 @@ class VLLMBenchmark:
         """Save benchmark results to the result file."""
         result_line = (
             f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},"
-            f"{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length},{metrics['test_time']:.2f}," # noqa
+            f"{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length},{metrics['test_time']:.2f},"
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
             f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
