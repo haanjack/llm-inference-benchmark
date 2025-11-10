@@ -128,7 +128,7 @@ class VLLMBenchmark:
             # E2E Latency
             ("E2E Mean(ms)", 10), ("E2E Med(ms)", 10), ("E2E P99(ms)", 10),
             # Throughput
-            ("Req Tok/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
+            ("Req req/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
         ]
         self._csv_headers = [
             "Model Config", "TP Size", "Request Rate", "Num. Prompts", "Batch Size", "Concurrency",
