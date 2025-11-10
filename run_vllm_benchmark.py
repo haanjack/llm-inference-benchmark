@@ -116,7 +116,7 @@ class VLLMBenchmark:
         # Column definitions (headers and widths) for console and CSV
         self._columns = [
             # Configs
-            ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Iter", 8),
+            ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11), # noqa
             ("Batch", 8), ("Conc", 8), ("In Len", 8), ("Out Len", 8),
             ("Test Time", 8),
             # TTFT
@@ -128,10 +128,10 @@ class VLLMBenchmark:
             # E2E Latency
             ("E2E Mean", 10), ("E2E Med", 10), ("E2E P99", 10),
             # Throughput
-            ("Req/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
+            ("Req Tput", 10), ("Out Tput", 10), ("Total Tput", 10)
         ]
         self._csv_headers = [
-            "Model Config", "TP Size", "Request Rate", "Num. Iter", "Batch Size", "Concurrency",
+            "Model Config", "TP Size", "Request Rate", "Num. Prompts", "Batch Size", "Concurrency",
             "Input Length", "Output Length", "Test Time(s)", "Mean TTFT(ms)", "Median TTFT(ms)",
             "P99 TTFT(ms)", "Mean TPOT(ms)", "Median TPOT(ms)", "P99 TPOT(ms)", "Mean ITL(ms)",
             "Median ITL(ms)", "P99 ITL(ms)", "Mean E2EL(ms)", "Median E2EL(ms)", "P99 E2EL(ms)",
@@ -399,6 +399,9 @@ class VLLMBenchmark:
 
     def _cleanup_server_process(self):
         """Terminate the direct server process if it exists."""
+        if self._is_dry_run:
+            return
+
         if self.server_process:
             logger.info("Shutting down vLLM server process...")
             self.server_process.terminate()
@@ -409,6 +412,9 @@ class VLLMBenchmark:
 
     def _cleanup_container(self, container_name):
         """Remove the Docker container if it exists."""
+        if self._is_dry_run:
+            return
+        
         self._cleanup_log_processes()
         subprocess.run([self._container_runtime, "rm", "-f", container_name],
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -502,12 +508,17 @@ class VLLMBenchmark:
 
         test_plans = []
         for scenario in config.get('test_scenarios', []):
-            # Convert all parameters to lists if they're not already
+            # sanity check
+            if 'num_iteration' in scenario and 'num_prompts' in scenario:
+                raise AssertionError("num_iteration and num_prompts are exclusive in test plan")
+
+            # Convert all parameters to lists if they're not already.
             request_rates = ensure_list(scenario.get('request_rate'), [0])
             concurrencies = ensure_list(scenario.get('concurrency'), [1])
             input_lengths = ensure_list(scenario.get('input_length'), [512])
             output_lengths = ensure_list(scenario.get('output_length'), [128])
-            num_iterations = ensure_list(scenario.get('num_iteration'), [8])
+            num_iterations = ensure_list(scenario.get('num_iteration'), [8 if not 'num_prompts' in scenario else 1])
+            num_prompts = ensure_list(scenario.get('num_prompts'), [1000 if not 'num_iterations' in scenario else 1])
             batch_sizes = ensure_list(scenario.get('batch_size'), [256])
 
             # dataset
@@ -521,17 +532,28 @@ class VLLMBenchmark:
                 request_rates,
                 batch_sizes,
                 num_iterations,
+                num_prompts,
                 input_lengths,
                 output_lengths,
                 concurrencies
             )
-            for rate, batch_size, num_iter, in_len, out_len, concurrency in param_combinations:
+            for rate, batch_size, num_iter, num_prompts_val, in_len, out_len, concurrency in param_combinations:
+                # use 'num_iteration'
+                if 'num_iteration' in scenario:
+                    num_prompts_final = concurrency * num_iter
+                # use 'num_prompts'
+                elif 'num_prompts' in scenario:
+                    num_prompts_final = num_prompts_val
+                # use default iteration size (=8)
+                else:
+                    num_prompts_final = concurrency * num_iter
+
                 test_plans.append({
                     'request_rate': rate,
                     'concurrency': concurrency,
                     'input_length': in_len,
                     'output_length': out_len,
-                    'num_iteration': num_iter,
+                    'num_prompts': num_prompts_final,
                     'batch_size': batch_size,
                     'dataset_name': dataset_name_,
                 })
@@ -550,8 +572,8 @@ class VLLMBenchmark:
 
     def _start_server_container(self, no_enable_prefix_caching: bool):
         """Start the vLLM server in a container."""
-        if not self._is_dry_run:
-            self._cleanup_container(self.container_name)
+        
+        self._cleanup_container(self.container_name)
 
         cmd = self.get_server_run_cmd(no_enable_prefix_caching)
 
@@ -673,18 +695,18 @@ class VLLMBenchmark:
                                concurrency: int,
                                input_length: int,
                                output_length: int,
-                               num_iteration: int,
+                               num_prompts: int,
                                batch_size: int) -> bool:
         """Check if results already exist for this configuration."""
         if not self.result_file.exists() or self._is_dry_run:
             return False
 
-        search_str = f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},{request_rate},{num_iteration},{batch_size},{concurrency},{input_length},{output_length}"
+        search_str = f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length}"
         search_result = any(search_str in line for line in self.result_file.read_text().splitlines())
 
         # print previous benchmark result if exists
         if search_result:
-            with open(self.result_file, 'r') as f:
+            with open(self.result_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     if search_str in line:
                         logger.info(self._format_result_for_console(line.strip().split(',')))
@@ -719,13 +741,13 @@ class VLLMBenchmark:
 
         return metrics
 
-    def _save_results(self, request_rate: int, num_iteration: int, batch_size: int,
+    def _save_results(self, request_rate: int, num_prompts: int, batch_size: int,
                       concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
 
         """Save benchmark results to the result file."""
         result_line = (
             f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},"
-            f"{request_rate},{num_iteration},{batch_size},{concurrency},{input_length},{output_length},{metrics['test_time']},"
+            f"{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length},{metrics['test_time']:.2f}," # noqa
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
             f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
@@ -747,12 +769,12 @@ class VLLMBenchmark:
         formatted_values.extend(val.rjust(width) for val, (_, width) in zip(values[1:], self._columns[1:]))
         return ' '.join(formatted_values)
 
-    def _print_result(self, request_rate: int, num_iteration: int, batch_size: int,
+    def _print_result(self, request_rate: int, num_prompts: int, batch_size: int,
                       concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         """Print the result to console."""
         values = [
             Path(self._model_config).stem, str(self._parallel_size.get('tp', '1')),
-            str(request_rate), str(num_iteration), str(batch_size), str(concurrency), str(input_length), str(output_length), f"{metrics['test_time']:.2f}",
+            str(request_rate), str(num_prompts), str(batch_size), str(concurrency), str(input_length), str(output_length), f"{metrics['test_time']:.2f}",
             f"{metrics['ttft_mean']:.2f}", f"{metrics['ttft_median']:.2f}", f"{metrics['ttft_p99']:.2f}",
             f"{metrics['tpot_mean']:.2f}", f"{metrics['tpot_median']:.2f}", f"{metrics['tpot_p99']:.2f}",
             f"{metrics['itl_mean']:.2f}", f"{metrics['itl_median']:.2f}", f"{metrics['itl_p99']:.2f}",
@@ -766,20 +788,16 @@ class VLLMBenchmark:
                              concurrency: int,
                              input_length: int,
                              output_length: int,
-                             num_iteration: int,
+                             num_prompts: int,
                              batch_size: int,
                              dataset_name: str):
         """Run a single benchmark iteration."""
 
-        # if required iteration is not given, use default value
-        # which enables to iterate following benchmark plan
-        num_prompts = concurrency * num_iteration
-
-        base_cmd = []
+        cmd = []
         if not self._in_container:
-            base_cmd.extend([self._container_runtime, "exec", self.container_name])
+            cmd.extend([self._container_runtime, "exec", self.container_name])
 
-        base_cmd.extend([
+        cmd.extend([
             "vllm", "bench", "serve",
             "--model", f"{self._get_model_path()}",
             "--backend", "vllm",
@@ -798,26 +816,23 @@ class VLLMBenchmark:
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ])
 
-        cmd = base_cmd
-
         if self._is_dry_run:
-            logger.info(f"Dry run - Benchmark command for r{request_rate}_n{num_iteration}_c{concurrency}_i{input_length}_o{output_length}")
+            logger.info(f"Dry run - Benchmark command for r{request_rate}_n{num_prompts}_c{concurrency}_i{input_length}_o{output_length}")
             logger.info(" ".join(cmd))
             return
 
         # Check if this configuration has already been tested
-        if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_iteration, batch_size):
-            # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
+        if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_prompts, batch_size):
             return
 
         # TODO: env directory will have more parallelism size info
-        log_file = self._log_dir / self._exp_tag / f"r{request_rate}_n{num_iteration}_i{input_length}_o{output_length}_c{concurrency}.log"
+        log_file = self._log_dir / self._exp_tag / f"r{request_rate}_n{num_prompts}_i{input_length}_o{output_length}_c{concurrency}.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_file, 'w') as f:
-            f.write(f"=== Benchmark: request_rate={request_rate}, num_iteration={num_iteration}, concurrency={concurrency}, input_len={input_length}, output_len={output_length} ===\n")
+        with open(log_file, 'w', encoding='utf-8') as f:
+            f.write(f"=== Benchmark: request_rate={request_rate}, num_prompts={num_prompts}, concurrency={concurrency}, input_len={input_length}, output_len={output_length} ===\n")
 
         # Run the benchmark command and redirect output to log file
-        with open(log_file, 'w') as f:
+        with open(log_file, 'w', encoding='utf-8') as f:
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
 
         # Extract metrics from log file
@@ -825,9 +840,9 @@ class VLLMBenchmark:
 
         # Save and print results
         self._print_result(
-            request_rate, num_iteration, batch_size, concurrency, input_length, output_length, metrics)
+            request_rate, num_prompts, batch_size, concurrency, input_length, output_length, metrics)
         self._save_results(
-            request_rate, num_iteration, batch_size, concurrency, input_length, output_length, metrics)
+            request_rate, num_prompts, batch_size, concurrency, input_length, output_length, metrics)
 
     def _warmup_server(self):
         """Warmup the server before benchmarking."""
@@ -854,11 +869,11 @@ class VLLMBenchmark:
             "--dataset-name", "random",
             "--ignore-eos",
             "--trust-remote-code",
-            f"--request-rate=10",
-            f"--max-concurrency=1",
-            f"--num-prompts=4",
-            f"--random-input-len=16",
-            f"--random-output-len=16",
+            "--request-rate=10",
+            "--max-concurrency=1",
+            "--num-prompts=4",
+            "--random-input-len=16",
+            "--random-output-len=16",
             "--tokenizer", f"{self._get_model_path()}",
             "--disable-tqdm"
         ])
@@ -885,7 +900,7 @@ class VLLMBenchmark:
                         break
             except subprocess.CalledProcessError as e:
                 logger.error(f"Single benchmark failed for \
-                             r{test_plan['request_rate']}_n{test_plan['num_iteration']}_c{test_plan['concurrency']}_i{test_plan['input_length']}_o{test_plan['output_length']}")
+                             r{test_plan['request_rate']}_n{test_plan['num_prompts']}_c{test_plan['concurrency']}_i{test_plan['input_length']}_o{test_plan['output_length']}")
                 logger.error(f"{str(e)}")
                 return
 
