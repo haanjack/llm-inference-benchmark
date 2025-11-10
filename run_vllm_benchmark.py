@@ -399,6 +399,9 @@ class VLLMBenchmark:
 
     def _cleanup_server_process(self):
         """Terminate the direct server process if it exists."""
+        if self._is_dry_run:
+            return
+
         if self.server_process:
             logger.info("Shutting down vLLM server process...")
             self.server_process.terminate()
@@ -409,6 +412,9 @@ class VLLMBenchmark:
 
     def _cleanup_container(self, container_name):
         """Remove the Docker container if it exists."""
+        if self._is_dry_run:
+            return
+        
         self._cleanup_log_processes()
         subprocess.run([self._container_runtime, "rm", "-f", container_name],
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -566,8 +572,8 @@ class VLLMBenchmark:
 
     def _start_server_container(self, no_enable_prefix_caching: bool):
         """Start the vLLM server in a container."""
-        if not self._is_dry_run:
-            self._cleanup_container(self.container_name)
+        
+        self._cleanup_container(self.container_name)
 
         cmd = self.get_server_run_cmd(no_enable_prefix_caching)
 
