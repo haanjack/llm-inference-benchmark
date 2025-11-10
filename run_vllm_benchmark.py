@@ -810,8 +810,6 @@ class VLLMBenchmark:
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ])
 
-        cmd = base_cmd
-
         if self._is_dry_run:
             logger.info(f"Dry run - Benchmark command for r{request_rate}_n{num_prompts}_c{concurrency}_i{input_length}_o{output_length}")
             logger.info(" ".join(cmd))
@@ -824,11 +822,11 @@ class VLLMBenchmark:
         # TODO: env directory will have more parallelism size info
         log_file = self._log_dir / self._exp_tag / f"r{request_rate}_n{num_prompts}_i{input_length}_o{output_length}_c{concurrency}.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_file, 'w') as f:
+        with open(log_file, 'w', encoding='utf-8') as f:
             f.write(f"=== Benchmark: request_rate={request_rate}, num_prompts={num_prompts}, concurrency={concurrency}, input_len={input_length}, output_len={output_length} ===\n")
 
         # Run the benchmark command and redirect output to log file
-        with open(log_file, 'w') as f:
+        with open(log_file, 'w', encoding='utf-8') as f:
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
 
         # Extract metrics from log file
@@ -865,11 +863,11 @@ class VLLMBenchmark:
             "--dataset-name", "random",
             "--ignore-eos",
             "--trust-remote-code",
-            f"--request-rate=10",
-            f"--max-concurrency=1",
-            f"--num-prompts=4",
-            f"--random-input-len=16",
-            f"--random-output-len=16",
+            "--request-rate=10",
+            "--max-concurrency=1",
+            "--num-prompts=4",
+            "--random-input-len=16",
+            "--random-output-len=16",
             "--tokenizer", f"{self._get_model_path()}",
             "--disable-tqdm"
         ])
