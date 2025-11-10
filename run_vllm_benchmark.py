@@ -118,17 +118,17 @@ class VLLMBenchmark:
             # Configs
             ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11),
             ("Batch", 8), ("Conc", 8), ("In Len", 8), ("Out Len", 8),
-            ("Test Time(s)", 12),
+            ("Test Time(s)", 10),
             # TTFT
-            ("TTFT Mean(ms)", 13), ("TTFT Med(ms)", 13), ("TTFT P99(ms)", 12),
+            ("TTFT Mean(ms)", 10), ("TTFT Med(ms)", 10), ("TTFT P99(ms)", 10),
             # TPOT
-            ("TPOT Mean(ms)", 13), ("TPOT Med(ms)", 13), ("TPOT P99(ms)", 12),
+            ("TPOT Mean(ms)", 10), ("TPOT Med(ms)", 10), ("TPOT P99(ms)", 10),
             # ITL
-            ("ITL Mean(ms)", 13), ("ITL Med(ms)", 13), ("ITL P99(ms)", 12),
+            ("ITL Mean(ms)", 10), ("ITL Med(ms)", 10), ("ITL P99(ms)", 10),
             # E2E Latency
-            ("E2E Mean(ms)", 13), ("E2E Med(ms)", 13), ("E2E P99(ms)", 12),
+            ("E2E Mean(ms)", 10), ("E2E Med(ms)", 1103), ("E2E P99(ms)", 10),
             # Throughput
-            ("Req Tok/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 12)
+            ("Req Tok/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
         ]
         self._csv_headers = [
             "Model Config", "TP Size", "Request Rate", "Num. Prompts", "Batch Size", "Concurrency",
