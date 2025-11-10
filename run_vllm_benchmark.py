@@ -516,8 +516,7 @@ class VLLMBenchmark:
             if self._sub_tasks:
                 if scenario.get('name') not in self._sub_tasks:
                     continue
-                else:
-                    logger.info("Sub task selected: %s", scenario.get('name'))
+                logger.info("Sub task selected: %s", scenario.get('name'))
 
             # sanity check
             if 'num_iteration' in scenario and 'num_prompts' in scenario:
