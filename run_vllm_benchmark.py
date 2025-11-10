@@ -126,7 +126,7 @@ class VLLMBenchmark:
             # ITL
             ("ITL Mean(ms)", 10), ("ITL Med(ms)", 10), ("ITL P99(ms)", 10),
             # E2E Latency
-            ("E2E Mean(ms)", 10), ("E2E Med(ms)", 1103), ("E2E P99(ms)", 10),
+            ("E2E Mean(ms)", 10), ("E2E Med(ms)", 10), ("E2E P99(ms)", 10),
             # Throughput
             ("Req Tok/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
         ]
