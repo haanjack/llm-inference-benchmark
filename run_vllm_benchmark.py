@@ -116,7 +116,7 @@ class VLLMBenchmark:
         # Column definitions (headers and widths) for console and CSV
         self._columns = [
             # Configs
-            ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Iter", 8),
+            ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11), # noqa
             ("Batch", 8), ("Conc", 8), ("In Len", 8), ("Out Len", 8),
             ("Test Time", 8),
             # TTFT
@@ -128,10 +128,10 @@ class VLLMBenchmark:
             # E2E Latency
             ("E2E Mean", 10), ("E2E Med", 10), ("E2E P99", 10),
             # Throughput
-            ("Req/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
+            ("Req Tput", 10), ("Out Tput", 10), ("Total Tput", 10)
         ]
         self._csv_headers = [
-            "Model Config", "TP Size", "Request Rate", "Num. Iter", "Batch Size", "Concurrency",
+            "Model Config", "TP Size", "Request Rate", "Num. Prompts", "Batch Size", "Concurrency",
             "Input Length", "Output Length", "Test Time(s)", "Mean TTFT(ms)", "Median TTFT(ms)",
             "P99 TTFT(ms)", "Mean TPOT(ms)", "Median TPOT(ms)", "P99 TPOT(ms)", "Mean ITL(ms)",
             "Median ITL(ms)", "P99 ITL(ms)", "Mean E2EL(ms)", "Median E2EL(ms)", "P99 E2EL(ms)",
@@ -506,7 +506,7 @@ class VLLMBenchmark:
             if 'num_iteration' in scenario and 'num_prompts' in scenario:
                 raise AssertionError("num_iteration and num_prompts are exclusive in test plan")
 
-            # Convert all parameters to lists if they're not already
+            # Convert all parameters to lists if they're not already.
             request_rates = ensure_list(scenario.get('request_rate'), [0])
             concurrencies = ensure_list(scenario.get('concurrency'), [1])
             input_lengths = ensure_list(scenario.get('input_length'), [512])
@@ -701,7 +701,7 @@ class VLLMBenchmark:
 
         # print previous benchmark result if exists
         if search_result:
-            with open(self.result_file, 'r') as f:
+            with open(self.result_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     if search_str in line:
                         logger.info(self._format_result_for_console(line.strip().split(',')))
@@ -742,7 +742,7 @@ class VLLMBenchmark:
         """Save benchmark results to the result file."""
         result_line = (
             f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},"
-            f"{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length},{metrics['test_time']},"
+            f"{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length},{metrics['test_time']:.2f}," # noqa
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
             f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
@@ -788,13 +788,11 @@ class VLLMBenchmark:
                              dataset_name: str):
         """Run a single benchmark iteration."""
 
-        # if required iteration is not given, use default value
-        
-        base_cmd = []
+        cmd = []
         if not self._in_container:
-            base_cmd.extend([self._container_runtime, "exec", self.container_name])
+            cmd.extend([self._container_runtime, "exec", self.container_name])
 
-        base_cmd.extend([
+        cmd.extend([
             "vllm", "bench", "serve",
             "--model", f"{self._get_model_path()}",
             "--backend", "vllm",
@@ -822,7 +820,6 @@ class VLLMBenchmark:
 
         # Check if this configuration has already been tested
         if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_prompts, batch_size):
-            # logger.info(f"Skipping existing configuration: c{client_count}_i{input_length}_o{output_length}")
             return
 
         # TODO: env directory will have more parallelism size info
