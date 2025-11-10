@@ -40,6 +40,8 @@ def get_args():
                         help='vLLM Docker image.')
     parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan YAML file in configs/benchmark_plans/ (without .yaml extension)')
+    parser.add_argument('--sub-tasks', default=None, type=str, nargs='+',
+                        help='Testing sub-tasks in test-plan')
     parser.add_argument('--env-file', default="configs/envs/common",
                         help='Environment file name')
     parser.add_argument('--model-root-dir', default="models",
@@ -72,6 +74,7 @@ class VLLMBenchmark:
                  model_root_dir: str = None,
                  model_config: str = None,
                  test_plan: str = "test",
+                 sub_tasks: List[str] = None,
                  gpu_devices: str = None,
                  num_gpus: int = None,
                  arch: str = None,
@@ -104,6 +107,7 @@ class VLLMBenchmark:
         self._container_model_path = Path(f"/models/{self._model_name}")
         self._vllm_image = vllm_image
         self._test_plan = test_plan
+        self._sub_tasks = sub_tasks
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
 
         # Sanity Check
@@ -414,7 +418,7 @@ class VLLMBenchmark:
         """Remove the Docker container if it exists."""
         if self._is_dry_run:
             return
-        
+
         self._cleanup_log_processes()
         subprocess.run([self._container_runtime, "rm", "-f", container_name],
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -482,7 +486,7 @@ class VLLMBenchmark:
             cmd.append("--no-enable-prefix-caching")
 
         return cmd
-    
+
     def _load_test_plan(self):
         """Load test configuration from YAML file."""
         yaml_path = Path("configs/benchmark_plans") / f"{self._test_plan}.yaml"
@@ -508,6 +512,13 @@ class VLLMBenchmark:
 
         test_plans = []
         for scenario in config.get('test_scenarios', []):
+            # sub task check
+            if self._sub_tasks:
+                if scenario.get('name') not in self._sub_tasks:
+                    continue
+                else:
+                    logger.info("Sub task selected: %s", scenario.get('name'))
+
             # sanity check
             if 'num_iteration' in scenario and 'num_prompts' in scenario:
                 raise AssertionError("num_iteration and num_prompts are exclusive in test plan")
@@ -559,7 +570,7 @@ class VLLMBenchmark:
                 })
 
         if not test_plans:
-            raise ValueError("No test scenarios found in test plan")
+            raise ValueError("No test scenarios loaded from the provided test plan.")
 
         return test_plans, no_enable_prefix_caching
 
@@ -572,7 +583,7 @@ class VLLMBenchmark:
 
     def _start_server_container(self, no_enable_prefix_caching: bool):
         """Start the vLLM server in a container."""
-        
+
         self._cleanup_container(self.container_name)
 
         cmd = self.get_server_run_cmd(no_enable_prefix_caching)
@@ -908,7 +919,7 @@ class VLLMBenchmark:
         """Run the full benchmark suite."""
         if self._num_gpus == 0:
             raise ValueError("No GPU is allocated")
-        
+
         test_plans, no_enable_prefix_caching = self._load_test_plan()
 
         # Start server for this configuration
@@ -943,6 +954,7 @@ def main():
             model_root_dir=args.model_root_dir,
             vllm_image=args.vllm_image,
             test_plan=args.test_plan,
+            sub_tasks=args.sub_tasks,
             gpu_devices=args.gpu_devices,
             num_gpus=args.num_gpus,
             arch=args.arch,
