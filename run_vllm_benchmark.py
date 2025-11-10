@@ -532,7 +532,6 @@ class VLLMBenchmark:
                 concurrencies
             )
             for rate, batch_size, num_iter, num_prompts_val, in_len, out_len, concurrency in param_combinations:
-                num_prompts_final = 0
                 # use 'num_iteration'
                 if 'num_iteration' in scenario:
                     num_prompts_final = concurrency * num_iter
@@ -541,7 +540,7 @@ class VLLMBenchmark:
                     num_prompts_final = num_prompts_val
                 # use default iteration size (=8)
                 else:
-                    num_prompts_final = concurrency * num_iter # num_iter 기본값은 8
+                    num_prompts_final = concurrency * num_iter
 
                 test_plans.append({
                     'request_rate': rate,
