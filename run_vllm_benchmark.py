@@ -217,7 +217,7 @@ class VLLMServer(BenchmarkBase):
         self._vllm_image = vllm_image
         self.server_process = None
         self.temp_compile_config_file = None
-        self.log_processes = []
+        self._log_process = None
 
         self._setup_container_name()
         self._setup_logging_dirs()
@@ -330,6 +330,7 @@ class VLLMServer(BenchmarkBase):
             logger.info("Server is up and running")
 
     def _start_server_container(self, no_enable_prefix_caching: bool):
+        """Start vLLM server container"""
         self.cleanup_container()
         cmd = self.get_server_run_cmd(no_enable_prefix_caching)
         if self._is_dry_run:
@@ -344,9 +345,11 @@ class VLLMServer(BenchmarkBase):
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
         with open(self.server_log, 'a', encoding='utf-8') as f:
-            stdout_process = subprocess.Popen([self._container_runtime, "logs", "-f", self.container_name], stdout=f, stderr=subprocess.PIPE)
-            stderr_process = subprocess.Popen([self._container_runtime, "logs", "-f", self.container_name], stdout=subprocess.PIPE, stderr=f)
-            self.log_processes = [stdout_process, stderr_process]
+            self._log_process = subprocess.Popen(
+                [self._container_runtime, "logs", "-f", self.container_name],
+                stdout=f,
+                stderr=f
+            )
 
     def _start_server_direct(self, no_enable_prefix_caching: bool):
         cmd = self.get_server_run_cmd_direct(no_enable_prefix_caching)
@@ -439,12 +442,11 @@ class VLLMServer(BenchmarkBase):
             logger.warning("Failed to remove container %s: %s", self.container_name, e)
 
     def _cleanup_log_processes(self):
-        for process in self.log_processes:
-            try:
-                process.terminate()
-                process.wait(timeout=5)
-            except (subprocess.TimeoutExpired, ProcessLookupError):
-                process.kill()
+        try:
+            self._log_process.terminate()
+            self._log_process.wait(timeout=5)
+        except (subprocess.TimeoutExpired, ProcessLookupError):
+            self._log_process.kill()
 
     def _cleanup_temp_files(self):
         if self.temp_compile_config_file and os.path.exists(self.temp_compile_config_file):
@@ -654,12 +656,11 @@ class BenchmarkRunner(BenchmarkBase):
         if not self.result_file.exists() or self._is_dry_run:
             return False
         search_str = f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length}"
-        if any(search_str in line for line in self.result_file.read_text().splitlines()):
-            with open(self.result_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if search_str in line:
-                        logger.info(self._format_result_for_console(line.strip().split(',')))
-            return True
+        with open(self.result_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                if search_str in line:
+                    logger.info(self._format_result_for_console(line.strip().split(',')))
+                    return True
         return False
 
     def _extract_metrics(self, log_file: Path) -> Dict[str, float]:
