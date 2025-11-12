@@ -260,7 +260,12 @@ class VLLMServer(BenchmarkBase):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=self._compile_cache_dir, encoding="utf-8", delete=False) as f:
             dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
             f.write(f"compilation_config: '{dict_config_str}'")
-            args.extend(["--config", str(Path("root") / ".cache" / "compile_config" / Path(f.name).name)])
+
+            config_path = f.name
+            if not self._in_container:
+                config_path = str(Path("/root/.cache/compile_config") / Path(f.name).name)
+
+            args.extend(["--config", config_path])
             self.temp_compile_config_file = f.name
         return " ".join(args)
 
