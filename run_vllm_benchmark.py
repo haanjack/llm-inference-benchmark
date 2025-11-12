@@ -183,6 +183,12 @@ class BenchmarkBase:
             return snapshot_download(repo_id=model_id, cache_dir=cache_dir, token=token)
 
         model_root_dir = model_root_dir if Path(model_root_dir).is_absolute() else Path.home() / model_root_dir
+        if model_root_dir is None:
+            model_root_dir = Path.home()
+        else:
+            model_root_dir = Path(model_root_dir)
+            if not model_root_dir.is_absolute():
+                model_root_dir = Path.home() / model_root_dir
 
         if Path(model_path_or_id).is_absolute():
             if Path(model_path_or_id).exists():
@@ -207,7 +213,7 @@ class BenchmarkBase:
 
     def _get_model_path(self) -> Path:
         """Select proper model path following execution mode"""
-        return self._model_path if self._in_container else self._container_model_path
+        return self._model_path if not self._in_container else self._container_model_path
 
 
 class VLLMServer(BenchmarkBase):
@@ -338,7 +344,7 @@ class VLLMServer(BenchmarkBase):
             logger.info(" ".join(cmd))
             logger.info("config file content:")
             with open(self.temp_compile_config_file, "r", encoding="utf-8") as f:
-                compile_config = yaml.load(f, yaml.FullLoader)
+                compile_config = yaml.safe_load(f)
                 logger.info(compile_config)
         else:
             logger.info("Started to initialize vllm server ...")
@@ -367,9 +373,9 @@ class VLLMServer(BenchmarkBase):
         for key, value in self._env_vars.items():
             server_env[key] = str(value)
         if 'BENCHMARK_BASE_PORT' in server_env:
+            global BENCHMARK_BASE_PORT # pylint: disable=
+            server_env['BENCHMARK_BASE_PORT'] = BENCHMARK_BASE_PORT
             del server_env['BENCHMARK_BASE_PORT']
-            global BENCHMARK_BASE_PORT
-            BENCHMARK_BASE_PORT = int(server_env['BENCHMARK_BASE_PORT'])
 
         self.server_log.parent.mkdir(parents=True, exist_ok=True)
         with open(self.server_log, 'w', encoding='utf-8') as f:
@@ -527,7 +533,8 @@ class BenchmarkRunner(BenchmarkBase):
         for scenario in config.get('test_scenarios', []):
             if self._sub_tasks and scenario.get('name') not in self._sub_tasks:
                 continue
-            logger.info("Sub task selected: %s", scenario.get('name'))
+            if self._sub_tasks:
+                logger.info("Sub task selected: %s", scenario.get('name'))
 
             if 'num_iteration' in scenario and 'num_prompts' in scenario:
                 raise AssertionError("num_iteration and num_prompts are exclusive.")
@@ -586,7 +593,7 @@ class BenchmarkRunner(BenchmarkBase):
             warmup_cmd.extend([self.server._container_runtime, "exec", self.server.container_name])
         warmup_cmd.extend([
             "vllm", "bench", "serve", "--model", str(self._get_model_path()),
-            "--backend", "vllm", "--host", "localhost", f"--port={self.vllm_port}",
+            "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
             "--dataset-name", "random", "--ignore-eos", "--trust-remote-code",
             "--request-rate=10", "--max-concurrency=1", "--num-prompts=4",
             "--random-input-len=16", "--random-output-len=16",
@@ -626,7 +633,7 @@ class BenchmarkRunner(BenchmarkBase):
             cmd.extend([self.server._container_runtime, "exec", self.server.container_name])
         cmd.extend([
             "vllm", "bench", "serve", "--model", str(self._get_model_path()),
-            "--backend", "vllm", "--host", "localhost", f"--port={self.vllm_port}",
+            "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
             f"--dataset-name={dataset_name}", "--ignore-eos", "--trust-remote-code",
             f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
             f"--max-concurrency={concurrency}", f"--num-prompts={num_prompts}",
