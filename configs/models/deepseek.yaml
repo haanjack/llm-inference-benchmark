@@ -1,12 +1,12 @@
-env:
+envs:
   # HUGGING_FACE_HUB_TOKEN: "your_token_here"
-  VLLM_ROCM_USE_AITER: 1 
-  VLLM_USE_AITER_TRITON_ROPE: 1 
-  VLLM_ROCM_USE_AITER_RMSNORM: 1 
-  VLLM_ROCM_QUICK_REDUCE_QUANTIZATION: INT4 
-  VLLM_ROCM_USE_AITER_TRITON_FUSED_RMSNORM_FP8_QUANT: 1 
-  VLLM_ROCM_USE_AITER_TRITON_FUSED_MUL_ADD: 1 
-  VLLM_ROCM_USE_AITER_TRITON_FUSED_SHARED_EXPERTS: 1 
+  VLLM_ROCM_USE_AITER: 1
+  VLLM_USE_AITER_TRITON_ROPE: 1
+  VLLM_ROCM_USE_AITER_RMSNORM: 1
+  VLLM_ROCM_QUICK_REDUCE_QUANTIZATION: INT4
+  VLLM_ROCM_USE_AITER_TRITON_FUSED_RMSNORM_FP8_QUANT: 1
+  VLLM_ROCM_USE_AITER_TRITON_FUSED_MUL_ADD: 1
+  VLLM_ROCM_USE_AITER_TRITON_FUSED_SHARED_EXPERTS: 1
 
 vllm_server_args:
   # Settings from AMD documentation
@@ -22,12 +22,15 @@ vllm_server_args:
   # async-scheduling: true
 
 parallel:
-  1: # tp=1 
-  2: # tp=2
+  1: # tp=1
+  2:
+    # tp=2
     enable-expert-parallel: true
-  4: # tp=4
+  4:
+    # tp=4
     enable-expert-parallel: true
-  8: # tp=8
+  8:
+    # tp=8
     enable-expert-parallel: true
 
 compilation_config:

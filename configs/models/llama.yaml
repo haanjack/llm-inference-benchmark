@@ -1,4 +1,4 @@
-env:
+envs:
   VLLM_ROCM_USE_AITER: 1
   VLLM_ROCM_USE_AITER_MHA: 1
   VLLM_ROCM_QUICK_REDUCE_QUANTIZATION: INT4
@@ -7,7 +7,7 @@ vllm_server_args:
   # Settings from AMD documentation
   quantization: fp8
   kv-cache-dtype: fp8
-  
+
   # max_model_len: 1024
   gpu-memory-utilization: 0.9
   max-num-batched-tokens: 8192
@@ -18,4 +18,4 @@ vllm_server_args:
 
 compilation_config:
   # Used when VLLM_ROCM_USE_AITER=1
-  custom_ops: ["-rms_norm", "-quant_fp8", "-silu_and_mul"]
+  custom_ops: [ "-rms_norm", "-quant_fp8", "-silu_and_mul" ]
