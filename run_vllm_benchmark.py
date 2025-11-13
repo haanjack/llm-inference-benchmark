@@ -485,7 +485,7 @@ class VLLMServer(BenchmarkBase):
             logger.error("Container runtime or name not defined.")
             return
         try:
-            subprocess.run([self._container_runtime, "rm", "-f", self._container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            subprocess.run([self._container_runtime, "rm", "-f", self._container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         except subprocess.CalledProcessError as e:
             logger.warning("Failed to remove container %s: %s", self._container_name, e)
 
