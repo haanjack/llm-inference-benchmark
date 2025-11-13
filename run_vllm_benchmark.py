@@ -405,9 +405,8 @@ class VLLMServer(BenchmarkBase):
         for key, value in self._env_vars.items():
             server_env[key] = str(value)
         if 'BENCHMARK_BASE_PORT' in server_env:
-            if 'BENCHMARK_BASE_PORT' in os.environ:
-                global BENCHMARK_BASE_PORT # pylint: disable=global-statement
-                BENCHMARK_BASE_PORT = server_env['BENCHMARK_BASE_PORT']
+            global BENCHMARK_BASE_PORT # pylint: disable=global-statement
+            BENCHMARK_BASE_PORT = server_env['BENCHMARK_BASE_PORT']
 
         self.server_log.parent.mkdir(parents=True, exist_ok=True)
         with open(self.server_log, 'w', encoding='utf-8') as f:
