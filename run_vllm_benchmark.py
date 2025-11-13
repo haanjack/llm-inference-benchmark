@@ -524,7 +524,7 @@ class VLLMServer(BenchmarkBase):
         return self._model_config
 
     @property
-    def parallel_size(self) -> str:
+    def parallel_size(self) -> Dict[str, str]:
         """Returns the parallel size."""
         return self._parallel_size
 
