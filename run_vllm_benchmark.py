@@ -282,7 +282,7 @@ class VLLMServer(BenchmarkBase):
         self._compile_cache_dir = self._host_cache_dir / "compile_config"
         self._compile_cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def _build_vllm_args(self) -> str:
+    def _build_vllm_args(self) -> List[str]:
         args = []
         for key, value in self._vllm_args.items():
             if key == "quantization" and value == "auto":
@@ -303,7 +303,7 @@ class VLLMServer(BenchmarkBase):
 
             args.extend(["--config", config_path])
             self.temp_compile_config_file = f.name
-        return " ".join(args)
+        return args
 
     def get_server_run_cmd(self, no_enable_prefix_caching: bool) -> List[str]:
         """Build server run command with container execution"""
@@ -337,7 +337,7 @@ class VLLMServer(BenchmarkBase):
         ]
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
-        cmd.extend(self._build_vllm_args().split())
+        cmd.extend(self._build_vllm_args())
         return cmd
 
     def get_server_run_cmd_direct(self, no_enable_prefix_caching: bool) -> List[str]:
@@ -353,7 +353,7 @@ class VLLMServer(BenchmarkBase):
         ]
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
-        cmd.extend(self._build_vllm_args().split())
+        cmd.extend(self._build_vllm_args())
         return cmd
 
     def start(self, no_enable_prefix_caching: bool):
@@ -579,8 +579,7 @@ class BenchmarkRunner:
         self._print_benchmark_info()
 
     def _setup_logging_dirs(self):
-        image_tag = self.server.vllm_image
-        self._log_dir = Path("logs") / self.server.model_name / image_tag
+        self._log_dir = Path("logs") / self.server.model_name / self.server.vllm_image
         self.result_file = self._log_dir / "result_list.csv"
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
         if not self.result_file.exists():
