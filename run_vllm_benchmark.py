@@ -305,7 +305,7 @@ class VLLMServer(BenchmarkBase):
         return " ".join(args)
 
     def get_server_run_cmd(self, no_enable_prefix_caching: bool) -> List[str]:
-        """build server run command with container execution"""
+        """Build server run command with container execution"""
         group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
         cmd = [
             self._container_runtime, "run", "-d",
