@@ -274,6 +274,7 @@ class VLLMServer(BenchmarkBase):
         self._exp_tag = f"{Path(self._model_config).stem}_tp{self._parallel_size.get('tp', '1')}"
 
     def _cache_dir(self):
+        """Configure vllm cache directories to reduce compilation overhead."""
         self._host_cache_dir = Path.cwd() / "vllm_cache" / self._exp_tag
         self._host_cache_dir.mkdir(parents=True, exist_ok=True)
         self._aiter_cache_dir = self._host_cache_dir / "aiter"
