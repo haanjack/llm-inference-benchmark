@@ -419,6 +419,7 @@ class VLLMServer(BenchmarkBase):
             time.sleep(5)
 
     def cleanup(self):
+        """Cleanup resources."""
         if self._in_container:
             self.cleanup_server_process()
         else:
@@ -426,7 +427,10 @@ class VLLMServer(BenchmarkBase):
         self._cleanup_temp_files()
 
     def cleanup_server_process(self):
-        if self._is_dry_run: return
+        """Cleanup server process."""
+        if self._is_dry_run:
+            return
+
         if self.server_process:
             logger.info("Shutting down vLLM server process...")
             self.server_process.terminate()
@@ -684,10 +688,18 @@ class BenchmarkRunner(BenchmarkBase):
         metrics = {}
         patterns = {
             'test_time': r'Benchmark duration \(s\):\s*([\d.]+)',
-            'ttft_mean': r'Mean TTFT \(ms\):\s*([\d.]+)', 'ttft_median': r'Median TTFT \(ms\):\s*([\d.]+)', 'ttft_p99': r'P99 TTFT \(ms\):\s*([\d.]+)',
-            'tpot_mean': r'Mean TPOT \(ms\):\s*([\d.]+)', 'tpot_median': r'Median TPOT \(ms\):\s*([\d.]+)', 'tpot_p99': r'P99 TPOT \(ms\):\s*([\d.]+)',
-            'itl_mean': r'Mean ITL \(ms\):\s*([\d.]+)', 'itl_median': r'Median ITL \(ms\):\s*([\d.]+)', 'itl_p99': r'P99 ITL \(ms\):\s*([\d.]+)',
-            'e2el_mean': r'Mean E2EL \(ms\):\s*([\d.]+)', 'e2el_median': r'Median E2EL \(ms\):\s*([\d.]+)', 'e2el_p99': r'P99 E2EL \(ms\):\s*([\d.]+)',
+            'ttft_mean': r'Mean TTFT \(ms\):\s*([\d.]+)',
+            'ttft_median': r'Median TTFT \(ms\):\s*([\d.]+)',
+            'ttft_p99': r'P99 TTFT \(ms\):\s*([\d.]+)',
+            'tpot_mean': r'Mean TPOT \(ms\):\s*([\d.]+)',
+            'tpot_median': r'Median TPOT \(ms\):\s*([\d.]+)',
+            'tpot_p99': r'P99 TPOT \(ms\):\s*([\d.]+)',
+            'itl_mean': r'Mean ITL \(ms\):\s*([\d.]+)',
+            'itl_median': r'Median ITL \(ms\):\s*([\d.]+)',
+            'itl_p99': r'P99 ITL \(ms\):\s*([\d.]+)',
+            'e2el_mean': r'Mean E2EL \(ms\):\s*([\d.]+)',
+            'e2el_median': r'Median E2EL \(ms\):\s*([\d.]+)',
+            'e2el_p99': r'P99 E2EL \(ms\):\s*([\d.]+)',
             'request_throughput': r'Request throughput \(req/s\):\s*([\d.]+)',
             'output_token_throughput': r'Output token throughput \(tok/s\):\s*([\d.]+)',
             'total_token_throughput': r'Total Token throughput \(tok/s\):\s*([\d.]+)'
