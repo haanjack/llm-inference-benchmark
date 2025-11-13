@@ -210,7 +210,7 @@ class BenchmarkBase:
             download_model(model_path_or_id, model_root_dir)
         return Path(model_root_dir) / model_path_or_id
 
-    def _get_model_path(self) -> Path:
+    def _get_model_path(self) -> str:
         """Select proper model path following execution mode"""
         return self._model_path if not self._in_container else self._container_model_path
 
@@ -297,7 +297,7 @@ class VLLMServer(BenchmarkBase):
             "-w", f"{os.environ.get('HOME')}",
             self._vllm_image,
             "vllm", "serve",
-            str(self._get_model_path()),
+            self._get_model_path(),
             "--host", "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
@@ -469,10 +469,10 @@ class VLLMServer(BenchmarkBase):
 
     def _cleanup_temp_files(self):
         """Cleanup temporary files."""
-        if not os.path.exists(self.temp_compile_config_file):
+        if not self.temp_compile_config_file:
             return
 
-        if not self.temp_compile_config_file:
+        if not os.path.exists(self.temp_compile_config_file):
             return
 
         logger.info("Cleaning up temporary compile config file: %s", self.temp_compile_config_file)
@@ -633,12 +633,12 @@ class BenchmarkRunner(BenchmarkBase):
         if not self._in_container:
             warmup_cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         warmup_cmd.extend([
-            "vllm", "bench", "serve", "--model", str(self._get_model_path()),
+            "vllm", "bench", "serve", "--model", self._get_model_path(),
             "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
             "--dataset-name", "random", "--ignore-eos", "--trust-remote-code",
             "--request-rate=10", "--max-concurrency=1", "--num-prompts=4",
             "--random-input-len=16", "--random-output-len=16",
-            "--tokenizer", str(self._get_model_path()), "--disable-tqdm"
+            "--tokenizer", self._get_model_path(), "--disable-tqdm"
         ])
         start_time = time.time()
         subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -677,13 +677,13 @@ class BenchmarkRunner(BenchmarkBase):
         if not self._in_container:
             cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         cmd.extend([
-            "vllm", "bench", "serve", "--model", str(self._get_model_path()),
+            "vllm", "bench", "serve", "--model", self._get_model_path(),
             "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
             f"--dataset-name={dataset_name}", "--ignore-eos", "--trust-remote-code",
             f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
             f"--max-concurrency={concurrency}", f"--num-prompts={num_prompts}",
             f"--random-input-len={input_length}", f"--random-output-len={output_length}",
-            "--tokenizer", str(self._get_model_path()), "--disable-tqdm",
+            "--tokenizer", self._get_model_path(), "--disable-tqdm",
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ])
 
