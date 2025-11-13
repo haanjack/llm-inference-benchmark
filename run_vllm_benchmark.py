@@ -250,6 +250,7 @@ class VLLMServer(BenchmarkBase):
     def __init__(self, vllm_image: str, **kwargs):
         super().__init__(**kwargs)
         self._vllm_image = vllm_image
+        self._image_tag = self._vllm_image.split(':')[-1]
         self.server_process = None
         self.temp_compile_config_file = None
         self._log_process: Optional[subprocess.Popen] = None
@@ -259,19 +260,19 @@ class VLLMServer(BenchmarkBase):
         self._cache_dir()
 
     def _setup_container_name(self):
-        image_tag = self._vllm_image.split(':')[-1]
+
         slurm_job_id = os.environ.get("SLURM_JOB_ID", None)
         self._container_name = ""
         if slurm_job_id:
             self._container_name = f"{slurm_job_id}-"
-        self._container_name += f"{os.path.basename(self._model_name)}-{image_tag}-g{self._gpu_devices.replace(',', '_')}"
+        self._container_name += f"{os.path.basename(self._model_name)}-{self._image_tag}-g{self._gpu_devices.replace(',', '_')}"
 
     def _setup_logging_dirs(self):
-        image_tag = self._vllm_image.split(':')[-1]
-        self._log_dir = Path("logs") / self._model_name / image_tag
-        self.server_log = self._log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{image_tag}-t{self._parallel_size.get('tp', '1')}.txt"
-        self.server_log.parent.mkdir(parents=True, exist_ok=True)
+        self._log_dir = Path("logs") / self._model_name / self._image_tag
+        self.server_log = self._log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{self._image_tag}-t{self._parallel_size.get('tp', '1')}.txt"
         self._exp_tag = f"{Path(self._model_config).stem}_tp{self._parallel_size.get('tp', '1')}"
+        if not self._is_dry_run:
+            self.server_log.parent.mkdir(parents=True, exist_ok=True)
 
     def _cache_dir(self):
         """Configure vllm cache directories to reduce compilation overhead."""
@@ -343,7 +344,7 @@ class VLLMServer(BenchmarkBase):
             "--trust-remote-code",
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
             "--port", str(self._vllm_port),
-        ]
+        ])
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
         cmd.extend(self._build_vllm_args())
@@ -527,6 +528,11 @@ class VLLMServer(BenchmarkBase):
         return self._vllm_image
 
     @property
+    def image_tag(self) -> str:
+        """Returns the vLLM Docker image tag."""
+        return self._image_tag
+
+    @property
     def container_runtime(self) -> Optional[str]:
         """Returns the container runtime ('docker' or 'podman')."""
         return self._container_runtime
@@ -588,10 +594,14 @@ class BenchmarkRunner:
         self._print_benchmark_info()
 
     def _setup_logging_dirs(self):
-        self._log_dir = Path("logs") / self.server.model_name / self.server.vllm_image
+        """Setup benchmark result logging directories."""
+        self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
         self.result_file = self._log_dir / "result_list.csv"
+
+        if self.server.is_dry_run:
+            return
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
-        if not self.server.is_dry_run and not self.result_file.exists():
+        if not self.result_file.exists():
             with open(self.result_file, 'w', encoding='utf-8') as f:
                 f.write(','.join(self._csv_headers) + '\n')
 
