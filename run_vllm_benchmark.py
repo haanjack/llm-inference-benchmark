@@ -340,7 +340,7 @@ class VLLMServer(BenchmarkBase):
         return cmd
 
     def get_server_run_cmd_direct(self, no_enable_prefix_caching: bool) -> List[str]:
-        """build server run command"""
+        """Build server run command"""
         cmd = [
             "vllm", "serve",
             str(self._model_path),
