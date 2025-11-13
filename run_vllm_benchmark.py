@@ -383,6 +383,8 @@ class VLLMServer(BenchmarkBase):
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
         with open(self.server_log, 'a', encoding='utf-8') as f:
+            if self._is_dry_run:
+                return
             self._log_process = subprocess.Popen(
                 [self._container_runtime, "logs", "-f", self._container_name],
                 stdout=f,
@@ -509,6 +511,11 @@ class VLLMServer(BenchmarkBase):
         self.temp_compile_config_file = None
 
     @property
+    def vllm_image(self) -> str:
+        """Returns the vLLM Docker image."""
+        return self._vllm_image
+
+    @property
     def container_runtime(self) -> Optional[str]:
         """Returns the container runtime ('docker' or 'podman')."""
         return self._container_runtime
@@ -541,9 +548,8 @@ class VLLMServer(BenchmarkBase):
 
 class BenchmarkRunner:
     """Benchmark runner."""
-    def __init__(self, server: VLLMServer, vllm_image: str, test_plan: str, sub_tasks: List[str] = None, no_warmup: bool = False):
+    def __init__(self, server: VLLMServer, test_plan: str, sub_tasks: List[str] = None, no_warmup: bool = False):
         self.server = server
-        self.vllm_image = vllm_image
         self._test_plan = test_plan
         self._sub_tasks = sub_tasks
         self._is_no_warmup = no_warmup
@@ -571,7 +577,7 @@ class BenchmarkRunner:
         self._print_benchmark_info()
 
     def _setup_logging_dirs(self):
-        image_tag = self.vllm_image.split(':')[-1]
+        image_tag = self.server.vllm_image
         self._log_dir = Path("logs") / self.server.model_name / image_tag
         self.result_file = self._log_dir / "result_list.csv"
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
@@ -586,7 +592,7 @@ class BenchmarkRunner:
     def _print_benchmark_info(self):
         logger.info("Start vLLM benchmark")
         logger.info("Model Name: %s", self.server.model_name)
-        logger.info("vLLM docker image: %s", self.vllm_image)
+        logger.info("vLLM docker image: %s", self.server.vllm_image)
         logger.info("GPU devices: %s", self.server.gpu_devices)
         logger.info("Benchmark plan: %s", self._test_plan)
         logger.info("Benchmark test plan:")
@@ -832,7 +838,7 @@ def main():
 
         runner = BenchmarkRunner(
             server=server,
-            vllm_image=args.vllm_image, test_plan=args.test_plan,
+            test_plan=args.test_plan,
             sub_tasks=args.sub_tasks, no_warmup=args.no_warmup
         )
 
