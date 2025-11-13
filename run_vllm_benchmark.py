@@ -333,7 +333,7 @@ class VLLMServer(BenchmarkBase):
             "--no-enable-log-requests",
             "--trust-remote-code",
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
-            "--port", str(self.vllm_port),
+            "--port", str(self._vllm_port),
         ]
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
@@ -349,7 +349,7 @@ class VLLMServer(BenchmarkBase):
             "--no-enable-log-requests",
             "--trust-remote-code",
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
-            "--port", str(self.vllm_port),
+            "--port", str(self._vllm_port),
         ]
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
@@ -434,7 +434,7 @@ class VLLMServer(BenchmarkBase):
         last_log_time = start_time
         while True:
             try:
-                response = requests.get(f"http://localhost:{self.vllm_port}/v1/models", timeout=10)
+                response = requests.get(f"http://localhost:{self._vllm_port}/v1/models", timeout=10)
                 if response.status_code == 200 and response.json():
                     return True
             except requests.exceptions.RequestException:
@@ -582,11 +582,7 @@ class BenchmarkRunner:
         self._log_dir = Path("logs") / self.server.model_name / self.server.vllm_image
         self.result_file = self._log_dir / "result_list.csv"
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
-        if not self.result_file.exists():
-            self._init_result_file()
-
-    def _init_result_file(self):
-        if not self.server.is_dry_run:
+        if not self.server.is_dry_run and not self.result_file.exists():
             with open(self.result_file, 'w', encoding='utf-8') as f:
                 f.write(','.join(self._csv_headers) + '\n')
 
@@ -602,8 +598,8 @@ class BenchmarkRunner:
                 plan_content = f.read()
                 indented_content = '\n'.join('    ' + line for line in plan_content.splitlines())
                 logger.info("\n%s", indented_content)
-        except FileNotFoundError:
-            logger.warning("Could not find test plan file: %s", self._test_plan_path)
+        except Exception as e:
+            logger.warning("Could not read test plan file '%s': %s", self._test_plan_path, e)
 
     def _load_test_plan(self):
         with open(self._test_plan_path, mode="r", encoding="utf-8") as f:
@@ -789,7 +785,7 @@ class BenchmarkRunner:
             metrics[key] = float(match.group(1)) if match else 0.0
         return metrics
 
-    def _save_results(self, request_rate, num_prompts, batch_size, concurrency, input_length, output_length, metrics):
+    def _save_results(self, request_rate: int, num_prompts: int, batch_size: int, concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         result_line = (
             f"{Path(self.server.model_config).stem},{self.server.parallel_size.get('tp', '1')},"
             f"{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length},{metrics['test_time']:.2f},"
@@ -810,7 +806,7 @@ class BenchmarkRunner:
         formatted_values.extend(val.rjust(width) for val, (_, width) in zip(values[1:], self._columns[1:]))
         return ' '.join(formatted_values)
 
-    def _print_result(self, request_rate, num_prompts, batch_size, concurrency, input_length, output_length, metrics):
+    def _print_result(self, request_rate: int, num_prompts: int, batch_size: int, concurrency: int, input_length: int, output_length: int, metrics: Dict[str, float]):
         values = [
             Path(self.server.model_config).stem, str(self.server.parallel_size.get('tp', '1')),
             str(request_rate), str(num_prompts), str(batch_size), str(concurrency), str(input_length), str(output_length), f"{metrics['test_time']:.2f}",
