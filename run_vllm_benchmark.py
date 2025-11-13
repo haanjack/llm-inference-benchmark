@@ -612,7 +612,11 @@ class BenchmarkRunner:
         no_enable_prefix_caching = (dataset_name == 'random')
 
         def ensure_list(value, default):
-            return [value] if isinstance(value, (int, float)) else value or default
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return [value]
+            return value
 
         test_plans = []
         for scenario in config.get('test_scenarios', []):
