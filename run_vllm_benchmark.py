@@ -182,7 +182,6 @@ class BenchmarkBase:
                 return snapshot_download(repo_id=model_id, local_dir=model_save_dir, cache_dir=cache_dir, token=token)
             return snapshot_download(repo_id=model_id, cache_dir=cache_dir, token=token)
 
-        model_root_dir = model_root_dir if Path(model_root_dir).is_absolute() else Path.home() / model_root_dir
         if model_root_dir is None:
             model_root_dir = Path.home()
         else:
@@ -373,9 +372,9 @@ class VLLMServer(BenchmarkBase):
         for key, value in self._env_vars.items():
             server_env[key] = str(value)
         if 'BENCHMARK_BASE_PORT' in server_env:
-            global BENCHMARK_BASE_PORT # pylint: disable=
-            server_env['BENCHMARK_BASE_PORT'] = BENCHMARK_BASE_PORT
-            del server_env['BENCHMARK_BASE_PORT']
+            if 'BENCHMARK_BASE_PORT' in os.environ:
+                global BENCHMARK_BASE_PORT # pylint: disable=global-statement
+                BENCHMARK_BASE_PORT = server_env['BENCHMARK_BASE_PORT']
 
         self.server_log.parent.mkdir(parents=True, exist_ok=True)
         with open(self.server_log, 'w', encoding='utf-8') as f:
@@ -437,6 +436,7 @@ class VLLMServer(BenchmarkBase):
                 self.server_process.kill()
 
     def cleanup_container(self):
+        """Cleanup container."""
         if self._is_dry_run: return
         self._cleanup_log_processes()
         if not self._container_runtime or not self.container_name:
@@ -448,6 +448,10 @@ class VLLMServer(BenchmarkBase):
             logger.warning("Failed to remove container %s: %s", self.container_name, e)
 
     def _cleanup_log_processes(self):
+        """Cleanup log processes."""
+        if self._log_process is None:
+            return
+
         try:
             self._log_process.terminate()
             self._log_process.wait(timeout=5)
@@ -455,10 +459,16 @@ class VLLMServer(BenchmarkBase):
             self._log_process.kill()
 
     def _cleanup_temp_files(self):
-        if self.temp_compile_config_file and os.path.exists(self.temp_compile_config_file):
-            logger.info("Cleaning up temporary compile config file: %s", self.temp_compile_config_file)
-            os.remove(self.temp_compile_config_file)
-            self.temp_compile_config_file = None
+        """Cleanup temporary files."""
+        if not os.path.exists(self.temp_compile_config_file):
+            return
+
+        if not self.temp_compile_config_file:
+            return
+
+        logger.info("Cleaning up temporary compile config file: %s", self.temp_compile_config_file)
+        os.remove(self.temp_compile_config_file)
+        self.temp_compile_config_file = None
 
 
 class BenchmarkRunner(BenchmarkBase):
