@@ -213,7 +213,7 @@ class BenchmarkBase:
     def get_model_path(self) -> str:
         """Select proper model path following execution mode"""
         if self._in_container:
-            # model path is directly accessable path in container
+            # model path is directly accessible path in container
             return str(self._model_path)
         else:
             # model path is translated path in container
