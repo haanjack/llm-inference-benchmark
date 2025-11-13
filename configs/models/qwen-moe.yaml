@@ -1,6 +1,6 @@
 # Default model configuration
 
-env:
+envs:
   # Example environment variables
   # HUGGING_FACE_HUB_TOKEN: "your_token_here"
   VLLM_ROCM_USE_AITER: 1
