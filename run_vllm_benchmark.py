@@ -129,7 +129,7 @@ class BenchmarkBase:
                 raise ValueError("num_gpus must be a positive integer.")
             self._gpu_devices = ",".join(map(str, range(self._num_gpus)))
 
-        self.vllm_port = BENCHMARK_BASE_PORT + lead_gpu
+        self._vllm_port = BENCHMARK_BASE_PORT + lead_gpu
 
     def _is_docker_available(self) -> bool:
         """Check if Docker is installed on the system."""
@@ -222,7 +222,7 @@ class VLLMServer(BenchmarkBase):
         self._vllm_image = vllm_image
         self.server_process = None
         self.temp_compile_config_file = None
-        self._log_process = None
+        self._log_process: Optional[subprocess.Popen] = None
 
         self._setup_container_name()
         self._setup_logging_dirs()
@@ -231,10 +231,10 @@ class VLLMServer(BenchmarkBase):
     def _setup_container_name(self):
         image_tag = self._vllm_image.split(':')[-1]
         slurm_job_id = os.environ.get("SLURM_JOB_ID", None)
-        self.container_name = ""
+        self._container_name = ""
         if slurm_job_id:
-            self.container_name = f"{slurm_job_id}-"
-        self.container_name += f"{os.path.basename(self._model_name)}-{image_tag}-g{self._gpu_devices.replace(',', '_')}"
+            self._container_name = f"{slurm_job_id}-"
+        self._container_name += f"{os.path.basename(self._model_name)}-{image_tag}-g{self._gpu_devices.replace(',', '_')}"
 
     def _setup_logging_dirs(self):
         image_tag = self._vllm_image.split(':')[-1]
@@ -275,10 +275,11 @@ class VLLMServer(BenchmarkBase):
         return " ".join(args)
 
     def get_server_run_cmd(self, no_enable_prefix_caching: bool) -> List[str]:
+        """build server run command with container execution"""
         group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
         cmd = [
             self._container_runtime, "run", "-d",
-            "--name", self.container_name,
+            "--name", self._container_name,
             "-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface",
             "--device", "/dev/kfd", "--device", "/dev/dri", "--device", "/dev/mem",
             "--group-add", group_option,
@@ -309,6 +310,7 @@ class VLLMServer(BenchmarkBase):
         return cmd
 
     def get_server_run_cmd_direct(self, no_enable_prefix_caching: bool) -> List[str]:
+        """build server run command"""
         cmd = [
             "vllm", "serve",
             str(self._model_path),
@@ -324,6 +326,7 @@ class VLLMServer(BenchmarkBase):
         return cmd
 
     def start(self, no_enable_prefix_caching: bool):
+        """Start vLLM server."""
         if self._in_container:
             self._start_server_direct(no_enable_prefix_caching)
         else:
@@ -351,7 +354,7 @@ class VLLMServer(BenchmarkBase):
 
         with open(self.server_log, 'a', encoding='utf-8') as f:
             self._log_process = subprocess.Popen(
-                [self._container_runtime, "logs", "-f", self.container_name],
+                [self._container_runtime, "logs", "-f", self._container_name],
                 stdout=f,
                 stderr=f
             )
@@ -387,7 +390,7 @@ class VLLMServer(BenchmarkBase):
             return self.server_process and self.server_process.poll() is None
         else:
             try:
-                cmd = [self._container_runtime, "ps", "-q", "--filter", f"name=^{self.container_name}$"]
+                cmd = [self._container_runtime, "ps", "-q", "--filter", f"name=^{self._container_name}$"]
                 result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5)
                 return bool(result.stdout.strip())
             except (subprocess.SubprocessError, FileNotFoundError):
@@ -441,15 +444,17 @@ class VLLMServer(BenchmarkBase):
 
     def cleanup_container(self):
         """Cleanup container."""
-        if self._is_dry_run: return
+        if self._is_dry_run:
+            return
+
         self._cleanup_log_processes()
-        if not self._container_runtime or not self.container_name:
+        if not self._container_runtime or not self._container_name:
             logger.error("Container runtime or name not defined.")
             return
         try:
-            subprocess.run([self._container_runtime, "rm", "-f", self.container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            subprocess.run([self._container_runtime, "rm", "-f", self._container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         except subprocess.CalledProcessError as e:
-            logger.warning("Failed to remove container %s: %s", self.container_name, e)
+            logger.warning("Failed to remove container %s: %s", self._container_name, e)
 
     def _cleanup_log_processes(self):
         """Cleanup log processes."""
@@ -474,19 +479,38 @@ class VLLMServer(BenchmarkBase):
         os.remove(self.temp_compile_config_file)
         self.temp_compile_config_file = None
 
+    @property
+    def container_runtime(self) -> Optional[str]:
+        """Returns the container runtime ('docker' or 'podman')."""
+        return self._container_runtime
+
+    @property
+    def container_name(self) -> str:
+        """Returns the name of the container."""
+        return self._container_name
+
+    @property
+    def vllm_port(self) -> int:
+        """Returns the vLLM server port."""
+        return self._vllm_port
+
+    @property
+    def exp_tag(self) -> str:
+        """Returns the experiment tag."""
+        return self._exp_tag
+
 
 class BenchmarkRunner(BenchmarkBase):
     """Benchmark runner."""
-    def __init__(self, server: VLLMServer, test_plan: str, sub_tasks: List[str] = None, no_warmup: bool = False, **kwargs):
+    def __init__(self, server: VLLMServer, vllm_image: str, test_plan: str, sub_tasks: List[str] = None, no_warmup: bool = False, **kwargs):
+        # Pass server's properties to the base class
         super().__init__(**kwargs)
         self.server = server
+        self.vllm_image = vllm_image
         self._test_plan = test_plan
         self._sub_tasks = sub_tasks
         self._is_no_warmup = no_warmup
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
-
-        if not self._test_plan_path.exists() and not self._is_dry_run:
-            raise FileNotFoundError(f"Could not find test plan: {self._test_plan_path}.")
 
         self._columns = [
             ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11),
@@ -505,10 +529,13 @@ class BenchmarkRunner(BenchmarkBase):
             "Request Tput(req/s)", "Output Tput(tok/s)", "Total Tput(tok/s)"
         ]
         self._setup_logging_dirs()
+        if not self._test_plan_path.exists() and not self._is_dry_run:
+            raise FileNotFoundError(f"Could not find test plan: {self._test_plan_path}.")
+
         self._print_benchmark_info()
 
     def _setup_logging_dirs(self):
-        image_tag = self.server._vllm_image.split(':')[-1]
+        image_tag = self.vllm_image.split(':')[-1]
         self._log_dir = Path("logs") / self._model_name / image_tag
         self.result_file = self._log_dir / "result_list.csv"
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
@@ -522,7 +549,7 @@ class BenchmarkRunner(BenchmarkBase):
     def _print_benchmark_info(self):
         logger.info("Start vLLM benchmark")
         logger.info("Model Name: %s", self._model_name)
-        logger.info("vLLM docker image: %s", self.server._vllm_image)
+        logger.info("vLLM docker image: %s", self.vllm_image)
         logger.info("GPU devices: %s", self._gpu_devices)
         logger.info("Benchmark plan: %s", self._test_plan)
         logger.info("Benchmark test plan:")
@@ -604,7 +631,7 @@ class BenchmarkRunner(BenchmarkBase):
         logger.info("Warming up the server...")
         warmup_cmd = []
         if not self._in_container:
-            warmup_cmd.extend([self.server._container_runtime, "exec", self.server.container_name])
+            warmup_cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         warmup_cmd.extend([
             "vllm", "bench", "serve", "--model", str(self._get_model_path()),
             "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
@@ -618,7 +645,10 @@ class BenchmarkRunner(BenchmarkBase):
         logger.info("Warmup complete in %.2f seconds.", time.time() - start_time)
 
     def _print_header(self):
-        if self._is_dry_run: return
+        """Print result's table header."""
+        if self._is_dry_run:
+            return
+
         header_line1 = []
         header_line2 = []
         for header, width in self._columns:
@@ -642,9 +672,10 @@ class BenchmarkRunner(BenchmarkBase):
 
     def run_single_benchmark(self, request_rate: int, concurrency: int, input_length: int,
                              output_length: int, num_prompts: int, batch_size: int, dataset_name: str):
+        """Run a benchmark."""
         cmd = []
         if not self._in_container:
-            cmd.extend([self.server._container_runtime, "exec", self.server.container_name])
+            cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         cmd.extend([
             "vllm", "bench", "serve", "--model", str(self._get_model_path()),
             "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
@@ -663,7 +694,7 @@ class BenchmarkRunner(BenchmarkBase):
         if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_prompts, batch_size):
             return
 
-        log_file = self._log_dir / self.server._exp_tag / f"r{request_rate}_n{num_prompts}_b{batch_size}_{input_length}_o{output_length}_c{concurrency}.log"
+        log_file = self._log_dir / self.server.exp_tag / f"r{request_rate}_n{num_prompts}_b{batch_size}_{input_length}_o{output_length}_c{concurrency}.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with open(log_file, 'w', encoding='utf-8') as f:
             f.write(f"=== Benchmark: {request_rate}, {num_prompts}, {batch_size}, {concurrency}, {input_length}, {output_length} ===\n")
@@ -764,18 +795,7 @@ def main():
 
         runner = BenchmarkRunner(
             server=server,
-            env_file=args.env_file,
-            model_config=args.model_config,
-            model_path_or_id=args.model_path_or_id,
-            model_root_dir=args.model_root_dir,
-            test_plan=args.test_plan,
-            sub_tasks=args.sub_tasks,
-            gpu_devices=args.gpu_devices,
-            num_gpus=args.num_gpus,
-            arch=args.arch,
-            no_warmup=args.no_warmup,
-            dry_run=args.dry_run,
-            in_container=args.in_container
+            **vars(args)
         )
 
         runner.run()
