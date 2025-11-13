@@ -102,7 +102,7 @@ class BenchmarkBase:
         self._container_model_path = Path(f"/models/{self._model_name}")
 
         if not self._model_path.exists() and not self._is_dry_run:
-            raise FileNotFoundError(f"Could not find model at {self._model_name} in {self._get_model_path()}.")
+            raise FileNotFoundError(f"Could not find model at {self._model_name} in {self.get_model_path()}.")
 
         self._container_runtime = None
         if not self._in_container:
@@ -210,9 +210,39 @@ class BenchmarkBase:
             download_model(model_path_or_id, model_root_dir)
         return Path(model_root_dir) / model_path_or_id
 
-    def _get_model_path(self) -> str:
+    def get_model_path(self) -> str:
         """Select proper model path following execution mode"""
-        return self._model_path if not self._in_container else self._container_model_path
+        if self._in_container:
+            # model path is directly accessable path in container
+            return str(self._model_path)
+        else:
+            # model path is translated path in container
+            return str(self._container_model_path)
+
+    @property
+    def in_container(self) -> bool:
+        """Returns True if running in container mode."""
+        return self._in_container
+
+    @property
+    def is_dry_run(self) -> bool:
+        """Returns True if dry run mode is enabled."""
+        return self._is_dry_run
+
+    @property
+    def model_name(self) -> str:
+        """Returns the model name."""
+        return self._model_name
+
+    @property
+    def gpu_devices(self) -> str:
+        """Returns the GPU devices string."""
+        return self._gpu_devices
+
+    @property
+    def num_gpus(self) -> int:
+        """Returns the number of GPUs."""
+        return self._num_gpus
 
 
 class VLLMServer(BenchmarkBase):
@@ -289,7 +319,7 @@ class VLLMServer(BenchmarkBase):
             "--security-opt", "seccomp=unconfined",
             "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
             "--env-file", self._common_env_file,
-            "-v", f"{self._model_path}:{self._get_model_path()}:ro",
+            "-v", f"{self._model_path}:{self.get_model_path()}:ro",
             "-v", f"{self._host_cache_dir}:/root/.cache",
             "-v", f"{self._compile_cache_dir}:/root/.cache/compile_config",
             "-v", f"{self._aiter_cache_dir}:/root/.aiter",
@@ -297,7 +327,7 @@ class VLLMServer(BenchmarkBase):
             "-w", f"{os.environ.get('HOME')}",
             self._vllm_image,
             "vllm", "serve",
-            self._get_model_path(),
+            self.get_model_path(),
             "--host", "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
@@ -490,6 +520,16 @@ class VLLMServer(BenchmarkBase):
         return self._container_name
 
     @property
+    def model_config(self) -> str:
+        """Returns the model config."""
+        return self._model_config
+
+    @property
+    def parallel_size(self) -> str:
+        """Returns the parallel size."""
+        return self._parallel_size
+
+    @property
     def vllm_port(self) -> int:
         """Returns the vLLM server port."""
         return self._vllm_port
@@ -500,18 +540,15 @@ class VLLMServer(BenchmarkBase):
         return self._exp_tag
 
 
-class BenchmarkRunner(BenchmarkBase):
+class BenchmarkRunner:
     """Benchmark runner."""
-    def __init__(self, server: VLLMServer, vllm_image: str, test_plan: str, sub_tasks: List[str] = None, no_warmup: bool = False, **kwargs):
-        # Pass server's properties to the base class
-        super().__init__(**kwargs)
+    def __init__(self, server: VLLMServer, vllm_image: str, test_plan: str, sub_tasks: List[str] = None, no_warmup: bool = False):
         self.server = server
         self.vllm_image = vllm_image
         self._test_plan = test_plan
         self._sub_tasks = sub_tasks
         self._is_no_warmup = no_warmup
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
-
         self._columns = [
             ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11),
             ("Batch", 8), ("Conc", 8), ("In Len", 8), ("Out Len", 8),
@@ -529,28 +566,29 @@ class BenchmarkRunner(BenchmarkBase):
             "Request Tput(req/s)", "Output Tput(tok/s)", "Total Tput(tok/s)"
         ]
         self._setup_logging_dirs()
-        if not self._test_plan_path.exists() and not self._is_dry_run:
+        if not self._test_plan_path.exists() and not self.server.is_dry_run:
             raise FileNotFoundError(f"Could not find test plan: {self._test_plan_path}.")
 
         self._print_benchmark_info()
 
     def _setup_logging_dirs(self):
         image_tag = self.vllm_image.split(':')[-1]
-        self._log_dir = Path("logs") / self._model_name / image_tag
+        self._log_dir = Path("logs") / self.server.model_name / image_tag
         self.result_file = self._log_dir / "result_list.csv"
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
         if not self.result_file.exists():
             self._init_result_file()
 
     def _init_result_file(self):
-        with open(self.result_file, 'w', encoding='utf-8') as f:
-            f.write(','.join(self._csv_headers) + '\n')
+        if not self.server.is_dry_run:
+            with open(self.result_file, 'w', encoding='utf-8') as f:
+                f.write(','.join(self._csv_headers) + '\n')
 
     def _print_benchmark_info(self):
         logger.info("Start vLLM benchmark")
-        logger.info("Model Name: %s", self._model_name)
+        logger.info("Model Name: %s", self.server.model_name)
         logger.info("vLLM docker image: %s", self.vllm_image)
-        logger.info("GPU devices: %s", self._gpu_devices)
+        logger.info("GPU devices: %s", self.server.gpu_devices)
         logger.info("Benchmark plan: %s", self._test_plan)
         logger.info("Benchmark test plan:")
         try:
@@ -608,7 +646,7 @@ class BenchmarkRunner(BenchmarkBase):
         return test_plans, no_enable_prefix_caching
 
     def run(self):
-        if self._num_gpus == 0:
+        if self.server.num_gpus == 0:
             raise ValueError("No GPU is allocated")
 
         test_plans, no_enable_prefix_caching = self._load_test_plan()
@@ -620,25 +658,25 @@ class BenchmarkRunner(BenchmarkBase):
             self._run_vllm_benchmark(test_plans)
         finally:
             self.server.cleanup()
-            if not self._is_dry_run and not self._in_container:
+            if not self.server.is_dry_run and not self.server.in_container:
                 logger.info("Benchmarking complete. Results saved to %s", self.result_file)
 
     def _warmup_server(self):
-        if self._is_dry_run or self._is_no_warmup:
+        if self.server.is_dry_run or self._is_no_warmup:
             logger.info("Skipping warmup.")
             return
 
         logger.info("Warming up the server...")
         warmup_cmd = []
-        if not self._in_container:
+        if not self.server.in_container:
             warmup_cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         warmup_cmd.extend([
-            "vllm", "bench", "serve", "--model", self._get_model_path(),
+            "vllm", "bench", "serve", "--model", self.server.get_model_path(),
             "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
             "--dataset-name", "random", "--ignore-eos", "--trust-remote-code",
             "--request-rate=10", "--max-concurrency=1", "--num-prompts=4",
             "--random-input-len=16", "--random-output-len=16",
-            "--tokenizer", self._get_model_path(), "--disable-tqdm"
+            "--tokenizer", self.server.get_model_path(), "--disable-tqdm"
         ])
         start_time = time.time()
         subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -646,7 +684,7 @@ class BenchmarkRunner(BenchmarkBase):
 
     def _print_header(self):
         """Print result's table header."""
-        if self._is_dry_run:
+        if self.server.is_dry_run:
             return
 
         header_line1 = []
@@ -662,7 +700,7 @@ class BenchmarkRunner(BenchmarkBase):
         for test_plan in test_plans:
             try:
                 self.run_single_benchmark(**test_plan)
-                if self._is_dry_run:
+                if self.server.is_dry_run:
                     if input("Continue? (Y/n) ").lower() in ['n', 'no']:
                         break
             except subprocess.CalledProcessError as e:
@@ -674,20 +712,20 @@ class BenchmarkRunner(BenchmarkBase):
                              output_length: int, num_prompts: int, batch_size: int, dataset_name: str):
         """Run a benchmark."""
         cmd = []
-        if not self._in_container:
+        if not self.server.in_container:
             cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         cmd.extend([
-            "vllm", "bench", "serve", "--model", self._get_model_path(),
+            "vllm", "bench", "serve", "--model", self.server.get_model_path(),
             "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
             f"--dataset-name={dataset_name}", "--ignore-eos", "--trust-remote-code",
             f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
             f"--max-concurrency={concurrency}", f"--num-prompts={num_prompts}",
             f"--random-input-len={input_length}", f"--random-output-len={output_length}",
-            "--tokenizer", self._get_model_path(), "--disable-tqdm",
+            "--tokenizer", self.server.get_model_path(), "--disable-tqdm",
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ])
 
-        if self._is_dry_run:
+        if self.server.is_dry_run:
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))
             return
 
@@ -705,9 +743,9 @@ class BenchmarkRunner(BenchmarkBase):
         self._save_results(request_rate, num_prompts, batch_size, concurrency, input_length, output_length, metrics)
 
     def _check_existing_result(self, request_rate, concurrency, input_length, output_length, num_prompts, batch_size) -> bool:
-        if not self.result_file.exists() or self._is_dry_run:
+        if not self.result_file.exists() or self.server.is_dry_run:
             return False
-        search_str = f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length}"
+        search_str = f"{Path(self.server.model_config).stem},{self.server.parallel_size.get('tp', '1')},{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length}"
         with open(self.result_file, 'r', encoding='utf-8') as f:
             for line in f:
                 if search_str in line:
@@ -743,7 +781,7 @@ class BenchmarkRunner(BenchmarkBase):
 
     def _save_results(self, request_rate, num_prompts, batch_size, concurrency, input_length, output_length, metrics):
         result_line = (
-            f"{Path(self._model_config).stem},{self._parallel_size.get('tp', '1')},"
+            f"{Path(self.server.model_config).stem},{self.server.parallel_size.get('tp', '1')},"
             f"{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length},{metrics['test_time']:.2f},"
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
             f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
@@ -764,7 +802,7 @@ class BenchmarkRunner(BenchmarkBase):
 
     def _print_result(self, request_rate, num_prompts, batch_size, concurrency, input_length, output_length, metrics):
         values = [
-            Path(self._model_config).stem, str(self._parallel_size.get('tp', '1')),
+            Path(self.server.model_config).stem, str(self.server.parallel_size.get('tp', '1')),
             str(request_rate), str(num_prompts), str(batch_size), str(concurrency), str(input_length), str(output_length), f"{metrics['test_time']:.2f}",
             f"{metrics['ttft_mean']:.2f}", f"{metrics['ttft_median']:.2f}", f"{metrics['ttft_p99']:.2f}",
             f"{metrics['tpot_mean']:.2f}", f"{metrics['tpot_median']:.2f}", f"{metrics['tpot_p99']:.2f}",
@@ -795,7 +833,8 @@ def main():
 
         runner = BenchmarkRunner(
             server=server,
-            **vars(args)
+            vllm_image=args.vllm_image, test_plan=args.test_plan,
+            sub_tasks=args.sub_tasks, no_warmup=args.no_warmup
         )
 
         runner.run()
