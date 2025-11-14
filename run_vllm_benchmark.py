@@ -782,8 +782,6 @@ class BenchmarkRunner:
 
         if test_args:
             for key, value in test_args.items():
-                if key == "quantization" and value == "auto":
-                    continue
                 if isinstance(value, bool):
                     if value:
                         cmd.append(f"--{key.replace('_', '-')}")
