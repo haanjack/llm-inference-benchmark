@@ -685,7 +685,9 @@ class BenchmarkRunner:
         test_args = {}
         raw_test_args = config.get('test_args', [])
         # Validate test_args structure
-        if isinstance(raw_test_args, dict):
+        if raw_test_args is None:
+            raw_test_args = []
+        elif isinstance(raw_test_args, dict):
             raw_test_args = [raw_test_args]
         elif not isinstance(raw_test_args, list):
             raise ValueError(
@@ -798,7 +800,6 @@ class BenchmarkRunner:
             for key, value in test_args.items():
                 if value is None:
                     continue
-
                 if isinstance(value, bool):
                     if value:
                         cmd.append(f"--{key.replace('_', '-')}")
