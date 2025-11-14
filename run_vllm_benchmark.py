@@ -417,9 +417,9 @@ class VLLMServer(BenchmarkBase):
             logger.info("Started to initialize vllm server ...")
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
+        if self._is_dry_run:
+            return
         with open(self.server_log, 'a', encoding='utf-8') as f:
-            if self._is_dry_run:
-                return
             self._log_process = subprocess.Popen(
                 [self._container_runtime, "logs", "-f", self._container_name],
                 stdout=f,
