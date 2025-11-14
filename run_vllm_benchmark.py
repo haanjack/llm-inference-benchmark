@@ -8,7 +8,7 @@ import sys
 import time
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 import re
 import tempfile
 import itertools
@@ -679,6 +679,12 @@ class BenchmarkRunner:
                 return [value]
             return value
 
+        # load benchmark arguments
+        test_args = {}
+        for loaded_args in config.get('test_args', []):
+            test_args.update(loaded_args)
+
+        # benchmark sweep
         test_plans = []
         for scenario in config.get('test_scenarios', []):
             if self._sub_tasks and scenario.get('name') not in self._sub_tasks:
@@ -714,17 +720,18 @@ class BenchmarkRunner:
                 })
         if not test_plans:
             raise ValueError("No test scenarios loaded.")
-        return test_plans
+
+        return test_args, test_plans
 
     def run(self):
         if self.server.num_gpus == 0:
             raise ValueError("No GPU is allocated")
 
-        test_plans = self._load_test_plan()
+        test_args, test_plans = self._load_test_plan()
 
         try:
             self._print_header()
-            self._run_vllm_benchmark(test_plans)
+            self._run_vllm_benchmark(test_args, test_plans)
         finally:
             self.server.cleanup()
             if not self._is_dry_run and not self.server.in_container:
@@ -744,10 +751,10 @@ class BenchmarkRunner:
         logger.info(' '.join(header_line1))
         logger.info(' '.join(header_line2))
 
-    def _run_vllm_benchmark(self, test_plans: List[Dict]):
+    def _run_vllm_benchmark(self, test_args: Dict[str, Any], test_plans: List[Dict]):
         for test_plan in test_plans:
             try:
-                self.run_single_benchmark(**test_plan)
+                self.run_single_benchmark(test_args, **test_plan)
                 if self._is_dry_run:
                     if input("Continue? (Y/n) ").lower() in ['n', 'no']:
                         break
@@ -756,7 +763,7 @@ class BenchmarkRunner:
                 logger.error("%s", str(e).rsplit('\n', maxsplit=1)[-1])
                 return
 
-    def run_single_benchmark(self, request_rate: int, concurrency: int, input_length: int,
+    def run_single_benchmark(self, test_args: Dict[str, Any], request_rate: int, concurrency: int, input_length: int,
                              output_length: int, num_prompts: int, batch_size: int, dataset_name: str):
         """Run a benchmark."""
         cmd = []
@@ -772,6 +779,16 @@ class BenchmarkRunner:
             "--tokenizer", self.server.get_model_path(), "--disable-tqdm",
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ])
+
+        if test_args:
+            for key, value in test_args.items():
+                if key == "quantization" and value == "auto":
+                    continue
+                if isinstance(value, bool):
+                    if value:
+                        cmd.append(f"--{key.replace('_', '-')}")
+                else:
+                    cmd.extend([f"--{key.replace('_', '-')}", str(value)])
 
         if self._is_dry_run:
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))
