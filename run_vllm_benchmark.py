@@ -681,7 +681,19 @@ class BenchmarkRunner:
 
         # load benchmark arguments
         test_args = {}
-        for loaded_args in config.get('test_args', []):
+        raw_test_args = config.get('test_args', [])
+        # Validate test_args structure
+        if isinstance(raw_test_args, dict):
+            raw_test_args = [raw_test_args]
+        elif not isinstance(raw_test_args, list):
+            raise ValueError(
+                f"test_args must be a list of dictionaries, or a single dictionary. Got: {type(raw_test_args).__name__}"
+            )
+        for idx, loaded_args in enumerate(raw_test_args):
+            if not isinstance(loaded_args, dict):
+                raise ValueError(
+                    f"Each item in test_args must be a dictionary. Item {idx} is of type {type(loaded_args).__name__}: {loaded_args}"
+                )
             test_args.update(loaded_args)
 
         # benchmark sweep
