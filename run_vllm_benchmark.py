@@ -493,15 +493,15 @@ class VLLMServer(BenchmarkBase):
 
         logger.info("Warming up the server...")
         warmup_cmd = []
-        if not self.server.in_container:
-            warmup_cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
+        if not self._in_container:
+            warmup_cmd.extend([self._container_runtime, "exec", self._container_name])
         warmup_cmd.extend([
-            "vllm", "bench", "serve", "--model", self.server.get_model_path(),
-            "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
+            "vllm", "bench", "serve", "--model", self.get_model_path(),
+            "--backend", "vllm", "--host", "localhost", f"--port={self.vllm_port}",
             "--dataset-name", "random", "--ignore-eos", "--trust-remote-code",
             "--request-rate=10", "--max-concurrency=1", "--num-prompts=4",
             "--random-input-len=16", "--random-output-len=16",
-            "--tokenizer", self.server.get_model_path(), "--disable-tqdm"
+            "--tokenizer", self.get_model_path(), "--disable-tqdm"
         ])
         start_time = time.time()
         subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -876,6 +876,7 @@ def main():
             num_gpus=args.num_gpus,
             arch=args.arch,
             dry_run=args.dry_run,
+            no_warmup=args.no_warmup,
             in_container=args.in_container,
             test_plan=args.test_plan,
         )
@@ -885,7 +886,6 @@ def main():
             server=server,
             test_plan=args.test_plan,
             sub_tasks=args.sub_tasks,
-            no_warmup=args.no_warmup,
             is_dry_run=args.server_test,
         )
 
