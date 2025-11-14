@@ -64,6 +64,8 @@ def get_args():
                         help='Show commands without executing them')
     parser.add_argument('--in-container', action='store_true',
                         help='Run benchmark directly without launching a new container')
+    parser.add_argument('--server-test', action='store_true',
+                        help='Initialize server only, and show benchmark commands for test')
 
     args = parser.parse_args()
 
@@ -247,9 +249,16 @@ class BenchmarkBase:
 
 class VLLMServer(BenchmarkBase):
     """vLLM Server management."""
-    def __init__(self, vllm_image: str, **kwargs):
+    def __init__(self,
+                vllm_image: str,
+                test_plan: str,
+                no_warmup: bool = False,
+                **kwargs):
         super().__init__(**kwargs)
         self._vllm_image = vllm_image
+        self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
+        self._is_no_warmup = no_warmup
+
         self._image_tag = self._vllm_image.split(':')[-1]
         self.server_process = None
         self.temp_compile_config_file = None
@@ -366,8 +375,20 @@ class VLLMServer(BenchmarkBase):
         cmd.extend(self._build_vllm_args())
         return cmd
 
-    def start(self, no_enable_prefix_caching: bool):
+    def _load_test_plan(self):
+        with open(self._test_plan_path, mode="r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        # vllm server prefix caching ops determined which dataset to test
+        dataset_name = config.get('dataset_name', 'random')
+        no_enable_prefix_caching = (dataset_name == 'random')
+
+        return no_enable_prefix_caching
+
+    def start(self):
         """Start vLLM server."""
+        no_enable_prefix_caching = self._load_test_plan()
+
         if self._in_container:
             self._start_server_direct(no_enable_prefix_caching)
         else:
@@ -377,6 +398,7 @@ class VLLMServer(BenchmarkBase):
             if not self._wait_for_server():
                 raise RuntimeError("Server failed to start")
             logger.info("Server is up and running")
+            self._warmup_server()
 
     def _start_server_container(self, no_enable_prefix_caching: bool):
         """Start vLLM server container"""
@@ -463,6 +485,27 @@ class VLLMServer(BenchmarkBase):
                 last_log_time = time.time()
                 logger.info("Waiting for vLLM server... %s seconds elapsed", int(elapsed_time))
             time.sleep(5)
+
+    def _warmup_server(self):
+        if self._is_dry_run or self._is_no_warmup:
+            logger.info("Skipping warmup.")
+            return
+
+        logger.info("Warming up the server...")
+        warmup_cmd = []
+        if not self._in_container:
+            warmup_cmd.extend([self._container_runtime, "exec", self._container_name])
+        warmup_cmd.extend([
+            "vllm", "bench", "serve", "--model", self.get_model_path(),
+            "--backend", "vllm", "--host", "localhost", f"--port={self.vllm_port}",
+            "--dataset-name", "random", "--ignore-eos", "--trust-remote-code",
+            "--request-rate=10", "--max-concurrency=1", "--num-prompts=4",
+            "--random-input-len=16", "--random-output-len=16",
+            "--tokenizer", self.get_model_path(), "--disable-tqdm"
+        ])
+        start_time = time.time()
+        subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        logger.info("Warmup complete in %.2f seconds.", time.time() - start_time)
 
     def cleanup(self):
         """Cleanup resources."""
@@ -565,11 +608,15 @@ class VLLMServer(BenchmarkBase):
 
 class BenchmarkRunner:
     """Benchmark runner."""
-    def __init__(self, server: VLLMServer, test_plan: str, sub_tasks: List[str] = None, no_warmup: bool = False):
+    def __init__(self,
+                server: VLLMServer,
+                test_plan: str,
+                sub_tasks: List[str] = None,
+                is_dry_run: bool = False):
         self.server = server
         self._test_plan = test_plan
         self._sub_tasks = sub_tasks
-        self._is_no_warmup = no_warmup
+        self._is_dry_run = server.is_dry_run or is_dry_run
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._columns = [
             ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11),
@@ -588,7 +635,7 @@ class BenchmarkRunner:
             "Request Tput(req/s)", "Output Tput(tok/s)", "Total Tput(tok/s)"
         ]
         self._setup_logging_dirs()
-        if not self._test_plan_path.exists() and not self.server.is_dry_run:
+        if not self._test_plan_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find test plan: {self._test_plan_path}.")
 
         self._print_benchmark_info()
@@ -598,7 +645,7 @@ class BenchmarkRunner:
         self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
         self.result_file = self._log_dir / "result_list.csv"
 
-        if self.server.is_dry_run:
+        if self._is_dry_run:
             return
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
         if not self.result_file.exists():
@@ -624,7 +671,6 @@ class BenchmarkRunner:
         with open(self._test_plan_path, mode="r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         dataset_name = config.get('dataset_name', 'random')
-        no_enable_prefix_caching = (dataset_name == 'random')
 
         def ensure_list(value, default):
             if value is None:
@@ -668,48 +714,25 @@ class BenchmarkRunner:
                 })
         if not test_plans:
             raise ValueError("No test scenarios loaded.")
-        return test_plans, no_enable_prefix_caching
+        return test_plans
 
     def run(self):
         if self.server.num_gpus == 0:
             raise ValueError("No GPU is allocated")
 
-        test_plans, no_enable_prefix_caching = self._load_test_plan()
+        test_plans = self._load_test_plan()
 
         try:
-            self.server.start(no_enable_prefix_caching)
-            self._warmup_server()
             self._print_header()
             self._run_vllm_benchmark(test_plans)
         finally:
             self.server.cleanup()
-            if not self.server.is_dry_run and not self.server.in_container:
+            if not self._is_dry_run and not self.server.in_container:
                 logger.info("Benchmarking complete. Results saved to %s", self.result_file)
-
-    def _warmup_server(self):
-        if self.server.is_dry_run or self._is_no_warmup:
-            logger.info("Skipping warmup.")
-            return
-
-        logger.info("Warming up the server...")
-        warmup_cmd = []
-        if not self.server.in_container:
-            warmup_cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
-        warmup_cmd.extend([
-            "vllm", "bench", "serve", "--model", self.server.get_model_path(),
-            "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
-            "--dataset-name", "random", "--ignore-eos", "--trust-remote-code",
-            "--request-rate=10", "--max-concurrency=1", "--num-prompts=4",
-            "--random-input-len=16", "--random-output-len=16",
-            "--tokenizer", self.server.get_model_path(), "--disable-tqdm"
-        ])
-        start_time = time.time()
-        subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        logger.info("Warmup complete in %.2f seconds.", time.time() - start_time)
 
     def _print_header(self):
         """Print result's table header."""
-        if self.server.is_dry_run:
+        if self._is_dry_run:
             return
 
         header_line1 = []
@@ -725,7 +748,7 @@ class BenchmarkRunner:
         for test_plan in test_plans:
             try:
                 self.run_single_benchmark(**test_plan)
-                if self.server.is_dry_run:
+                if self._is_dry_run:
                     if input("Continue? (Y/n) ").lower() in ['n', 'no']:
                         break
             except subprocess.CalledProcessError as e:
@@ -750,7 +773,7 @@ class BenchmarkRunner:
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ])
 
-        if self.server.is_dry_run:
+        if self._is_dry_run:
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))
             return
 
@@ -768,7 +791,7 @@ class BenchmarkRunner:
         self._save_results(request_rate, num_prompts, batch_size, concurrency, input_length, output_length, metrics)
 
     def _check_existing_result(self, request_rate, concurrency, input_length, output_length, num_prompts, batch_size) -> bool:
-        if not self.result_file.exists() or self.server.is_dry_run:
+        if not self.result_file.exists() or self._is_dry_run:
             return False
         search_str = f"{Path(self.server.model_config).stem},{self.server.parallel_size.get('tp', '1')},{request_rate},{num_prompts},{batch_size},{concurrency},{input_length},{output_length}"
         with open(self.result_file, 'r', encoding='utf-8') as f:
@@ -853,13 +876,17 @@ def main():
             num_gpus=args.num_gpus,
             arch=args.arch,
             dry_run=args.dry_run,
-            in_container=args.in_container
+            no_warmup=args.no_warmup,
+            in_container=args.in_container,
+            test_plan=args.test_plan,
         )
+        server.start()
 
         runner = BenchmarkRunner(
             server=server,
             test_plan=args.test_plan,
-            sub_tasks=args.sub_tasks, no_warmup=args.no_warmup
+            sub_tasks=args.sub_tasks,
+            is_dry_run=args.server_test,
         )
 
         runner.run()
