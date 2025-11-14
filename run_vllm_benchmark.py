@@ -295,6 +295,8 @@ class VLLMServer(BenchmarkBase):
     def _build_vllm_args(self) -> List[str]:
         args = []
         for key, value in self._vllm_args.items():
+            if value is None:
+                continue
             if key == "quantization" and value == "auto":
                 continue
             if isinstance(value, bool):
@@ -794,6 +796,9 @@ class BenchmarkRunner:
 
         if test_args:
             for key, value in test_args.items():
+                if value is None:
+                    continue
+
                 if isinstance(value, bool):
                     if value:
                         cmd.append(f"--{key.replace('_', '-')}")
