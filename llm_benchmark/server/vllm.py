@@ -89,7 +89,7 @@ class VLLMServer(BenchmarkBase):
             "--no-enable-log-requests",
             "--trust-remote-code",
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
-            "--port", str(self._vllm_port),
+            "--port", str(self._port),
         ])
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
@@ -105,7 +105,7 @@ class VLLMServer(BenchmarkBase):
             "--no-enable-log-requests",
             "--trust-remote-code",
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
-            "--port", str(self._vllm_port),
+            "--port", str(self._port),
         ]
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
@@ -186,7 +186,7 @@ class VLLMServer(BenchmarkBase):
     def _wait_for_server(self, timeout: int = 2 * 60 * 60) -> bool:
         if super()._wait_for_server(timeout):
             # vLLM can return 200 with an empty list before it's truly ready
-            response = requests.get(f"http://localhost:{self._vllm_port}/v1/models", timeout=10)
+            response = requests.get(f"http://localhost:{self._port}/v1/models", timeout=10)
             if response.json():
                 return True
         return False
@@ -197,7 +197,7 @@ class VLLMServer(BenchmarkBase):
             return
 
         logger.info("Warming up the server...")
-        warmup_cmd = ["curl", f"http://localhost:{self.vllm_port}/v1/models"]
+        warmup_cmd = ["curl", f"http://localhost:{self.port}/v1/models"]
         start_time = time.time()
         subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         logger.info("Warmup complete in %.2f seconds.", time.time() - start_time)
@@ -248,9 +248,9 @@ class VLLMServer(BenchmarkBase):
         return self._parallel_size
 
     @property
-    def vllm_port(self) -> int:
+    def port(self) -> int:
         """Returns the vLLM server port."""
-        return self._vllm_port
+        return self._port
 
     @property
     def exp_tag(self) -> str:

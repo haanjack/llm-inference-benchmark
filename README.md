@@ -76,7 +76,7 @@ server_args:
   # disable-raix-cache: true
   chunked-prefill-size: 196608
   max-prefill-tokens: 196608
-  num-continous-decode-steps: 4
+  num-continuous-decode-steps: 4
   cuda-graph-max-bs: 128
 
 compilation_config:

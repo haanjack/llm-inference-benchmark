@@ -58,7 +58,7 @@ class SGLangServer(BenchmarkBase):
             "python", "-m", "sglang.launch_server",
             "--model-path", self.get_model_path(),
             "--host", "0.0.0.0",
-            "--port", str(self._vllm_port),
+            "--port", str(self._port),
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
         ])
         if disable_radix_cache:
@@ -72,7 +72,7 @@ class SGLangServer(BenchmarkBase):
             "python", "-m", "sglang.launch_server",
             "--model-path", str(self._model_path),
             "--host", "0.0.0.0",
-            "--port", str(self._vllm_port),
+            "--port", str(self._port),
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
         ]
         if disable_radix_cache:
@@ -158,7 +158,7 @@ class SGLangServer(BenchmarkBase):
                 "max_tokens": 16,
             }
             try:
-                response = requests.post(f"http://localhost:{self._vllm_port}/v1/completions", json=payload, timeout=60)
+                response = requests.post(f"http://localhost:{self._port}/v1/completions", json=payload, timeout=60)
                 response.raise_for_status()
                 logger.info("Warmup request %d successful.", i + 1)
             except requests.exceptions.RequestException as e:
@@ -198,9 +198,9 @@ class SGLangServer(BenchmarkBase):
         return self._parallel_size
 
     @property
-    def vllm_port(self) -> int:
+    def port(self) -> int:
         """Returns the server port."""
-        return self._vllm_port
+        return self._port
 
     @property
     def exp_tag(self) -> str:

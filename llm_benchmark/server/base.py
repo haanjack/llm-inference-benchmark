@@ -100,7 +100,7 @@ class BenchmarkBase:
                 raise ValueError("num_gpus must be a positive integer.")
             self._gpu_devices = ",".join(map(str, range(self._num_gpus)))
 
-        self._vllm_port = BENCHMARK_BASE_PORT + lead_gpu
+        self._port = BENCHMARK_BASE_PORT + lead_gpu
 
     def _get_docker_run_common_command(self) -> List[str]:
         group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
@@ -233,7 +233,7 @@ class BenchmarkBase:
         last_log_time = start_time
         while True:
             try:
-                response = requests.get(f"http://localhost:{self._vllm_port}/v1/models", timeout=10)
+                response = requests.get(f"http://localhost:{self._port}/v1/models", timeout=10)
                 if response.status_code == 200:
                     return True
             except requests.exceptions.RequestException:

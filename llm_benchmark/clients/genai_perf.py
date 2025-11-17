@@ -61,7 +61,7 @@ class GenAIPerfClient(BenchmarkClientBase):
             "--streaming",
             "--random-seed", "0",
             "--endpoint-type", "chat",
-            "--endpoint", f"http://localhost:{self.server.vllm_port}/v1/completions"
+            "--endpoint", f"http://localhost:{self.server.port}/v1/completions"
         ]
         cmd.extend(dataset_args)
 
