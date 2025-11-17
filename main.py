@@ -48,7 +48,7 @@ def get_args():
                         help='Number of GPUs')
     parser.add_argument('--arch', default=None,
                         help='Target GPU architecture for model config')
-    parser.add_argument('--benchmark-client', default='genai-perf',
+    parser.add_argument('--benchmark-client', default='vllm',
                         choices=['vllm', 'genai-perf'],
                         help='Benchmark client to use')
 
@@ -77,11 +77,9 @@ def main():
     try:
         args = get_args()
 
-        model_config_path = f"configs/models/{args.model_config}-{args.backend}"
-
         server_kwargs = {
             "env_file": args.env_file,
-            "model_config": model_config_path,
+            "model_config": args.model_config,
             "model_path_or_id": args.model_path_or_id,
             "model_root_dir": args.model_root_dir,
             "gpu_devices": args.gpu_devices,
