@@ -24,6 +24,9 @@ class GenAIPerfClient(BenchmarkClientBase):
 
     def run_single_benchmark(self, test_args: Dict[str, Any], **kwargs):
         """Run a single benchmark test."""
+        random_range_ratio = test_args.get('random_range_ratio', 0.0)
+
+        triton_image = "nvcr.io/nvidia/tritonserver:25.10-py3-sdk"
         request_rate = kwargs.get('request_rate')
         concurrency = kwargs.get('concurrency')
         input_length = kwargs.get('input_length')
@@ -32,37 +35,39 @@ class GenAIPerfClient(BenchmarkClientBase):
         batch_size = kwargs.get('batch_size')
         dataset_name = kwargs.get('dataset_name')
 
+        dataset_args = []
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             if dataset_name == "random":
-                # Create a dummy prompt for random dataset
-                dummy_prompt = " ".join(["word"] * input_length)
-                data = {"data": [{"prompt": dummy_prompt}]}
-                f.write(json.dumps(data))
-                input_filename = f.name
+                  dataset_args.append(f'--synthetic-input-tokens-mean={input_length}')
+                  dataset_args.append(f'--extra-inputs=max_tokens:{int(input_length * random_range_ratio)}')
+                  dataset_args.append(f'--extra-inputs=min_tokens:{int(input_length * random_range_ratio)}')
             else:
                 raise NotImplementedError(f"Dataset {dataset_name} is not yet implemented for GenAIPerfClient")
 
-        cmd = []
-        if not self.server.in_container:
-            cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
-
-        cmd.extend([
-            "genai-perf",
+        cmd = [
+            self.server.container_runtime, "run", "--rm",
+            "--network=host",
+            triton_image,
+            "genai-perf", "profile",
             "-m", self.server.model_name,
+            "--tokenizer", self.server.model_name,
             "-i", "http",
             "--service-kind", "openai",
-            f"--concurrency-range", f"{concurrency}",
-            f"--request-rate", f"{request_rate}",
-            f"--input-data", input_filename,
-            f"--output-format", "json",
-            f"--profile-export-file", "/tmp/profile_export.json",
-            f"--streaming",
-            f"--endpoint", f"http://localhost:{self.server.vllm_port}/v1/completions"
-        ])
+            "--concurrency", f"{concurrency}",
+            "--request-rate", f"{request_rate}",
+            "--request-count", f"{num_prompts}",
+            "--output-format", "json",
+            "--profile-export-file", "/tmp/profile_export.json",
+            "--streaming",
+            "--random-seed", "0",
+            "--endpoint-type", "chat",
+            "--endpoint", f"http://localhost:{self.server.vllm_port}/v1/completions"
+            "--disable-tqdm",
+        ]
+        cmd.extend(dataset_args)
 
         if self._is_dry_run:
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))
-            os.remove(input_filename)
             return None
 
         if self._check_existing_result(request_rate, concurrency, input_length, output_length, num_prompts, batch_size):
@@ -74,7 +79,6 @@ class GenAIPerfClient(BenchmarkClientBase):
             f.write(f"=== Benchmark: {request_rate}, {num_prompts}, {batch_size}, {concurrency}, {input_length}, {output_length} ===\n")
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
 
-        os.remove(input_filename)
         return self._extract_metrics(log_file)
 
     def _check_existing_result(self, request_rate, concurrency, input_length, output_length, num_prompts, batch_size) -> bool:

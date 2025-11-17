@@ -29,6 +29,11 @@ class VLLMClient(BenchmarkClientBase):
         batch_size = kwargs.get('batch_size')
         dataset_name = kwargs.get('dataset_name')
 
+        # check vllm bench support dataset
+        assert dataset_name in ['random', 'sharegpt', 'burstgpt', 'sonnet', 'random-mm', \
+                                'rndom-rerank', 'hf', 'custom', 'prefix_repetition', 'spec_bench'], \
+                                f"Dataset {dataset_name} is not supported by vLLM benchmark."
+
         cmd = []
         if not self.server.in_container:
             cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
@@ -57,6 +62,9 @@ class VLLMClient(BenchmarkClientBase):
                         cmd.append(f"--{key.replace('_', '-')}")
                 else:
                     cmd.extend([f"--{key.replace('_', '-')}", str(value)])
+
+                if key == 'dataset_path':
+                    cmd.append(['--dataset-path', value])
 
         if self._is_dry_run:
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))
