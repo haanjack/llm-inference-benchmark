@@ -36,7 +36,7 @@ class BenchmarkBase:
         self.server_process: Optional[subprocess.Popen] = None
         self._common_env_file = env_file
         self._env_vars = {}
-        self._vllm_args = {}
+        self._server_args = {}
         self._compilation_config = {}
         self._arch = arch
         self._model_config = model_config
@@ -134,9 +134,9 @@ class BenchmarkBase:
         parallel_dict = model_config.get('parallel', {})
         if self._num_gpus in parallel_dict:
             if parallel_dict[self._num_gpus]:
-                self._vllm_args.update(parallel_dict[self._num_gpus])
+                self._server_args.update(parallel_dict[self._num_gpus])
 
-        self._vllm_args.update(model_config.get('vllm_server_args', {}))
+        self._server_args.update(model_config.get('server_args', {}))
         self._compilation_config = model_config.get('compilation_config', {})
 
     def _load_model_from_path_or_hub(self, model_path_or_id: str,

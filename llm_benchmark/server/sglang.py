@@ -38,7 +38,7 @@ class SGLangServer(BenchmarkBase):
 
     def _build_sglang_args(self) -> List[str]:
         args = []
-        for key, value in self._vllm_args.items():
+        for key, value in self._server_args.items():
             if value is None:
                 continue
             if isinstance(value, bool):
@@ -48,7 +48,7 @@ class SGLangServer(BenchmarkBase):
                 args.extend([f"--{key.replace('_', '-')}", str(value)])
         return args
 
-    def get_server_run_cmd(self) -> List[str]:
+    def get_server_run_cmd(self, disable_radix_cache: bool) -> List[str]:
         """Build server run command with container execution"""
         group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
         cmd = [
@@ -79,10 +79,12 @@ class SGLangServer(BenchmarkBase):
             "--port", str(self._vllm_port),
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
         ])
+        if disable_radix_cache:
+            cmd.append("--disable-radix-cache")
         cmd.extend(self._build_sglang_args())
         return cmd
 
-    def get_server_run_cmd_direct(self) -> List[str]:
+    def get_server_run_cmd_direct(self, disable_radix_cache: bool) -> List[str]:
         """Build server run command"""
         cmd = [
             "python", "-m", "sglang.launch_server",
@@ -91,15 +93,29 @@ class SGLangServer(BenchmarkBase):
             "--port", str(self._vllm_port),
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
         ]
+        if disable_radix_cache:
+            cmd.append("--disable-radix-cache")
         cmd.extend(self._build_sglang_args())
         return cmd
 
+    def _load_test_plan(self):
+        with open(self._test_plan_path, mode="r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        # vllm server prefix caching ops determined which dataset to test
+        dataset_name = config.get('dataset_name', 'random')
+        disable_radix_cache = (dataset_name == 'random')
+
+        return disable_radix_cache
+
     def start(self):
         """Start SGLang server."""
+        disable_radix_cache = self._load_test_plan()
+
         if self._in_container:
-            self._start_server_direct()
+            self._start_server_direct(disable_radix_cache)
         else:
-            self._start_server_container()
+            self._start_server_container(disable_radix_cache)
 
         if not self._is_dry_run:
             if not self._wait_for_server():
@@ -107,10 +123,10 @@ class SGLangServer(BenchmarkBase):
             logger.info("Server is up and running")
             self._warmup_server()
 
-    def _start_server_container(self):
+    def _start_server_container(self, disable_radix_cache: bool):
         """Start SGLang server container"""
         self.cleanup_container()
-        cmd = self.get_server_run_cmd()
+        cmd = self.get_server_run_cmd(disable_radix_cache)
         if self._is_dry_run:
             logger.info("Dry run - Docker server command:")
             logger.info(" ".join(cmd))
@@ -126,8 +142,8 @@ class SGLangServer(BenchmarkBase):
                 stderr=f
             )
 
-    def _start_server_direct(self):
-        cmd = self.get_server_run_cmd_direct()
+    def _start_server_direct(self, disable_radix_cache: bool):
+        cmd = self.get_server_run_cmd_direct(disable_radix_cache)
         if self._is_dry_run:
             logger.info("Dry run - Direct server command:")
             logger.info(" ".join(cmd))

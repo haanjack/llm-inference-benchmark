@@ -44,7 +44,7 @@ class VLLMServer(BenchmarkBase):
 
     def _build_vllm_args(self) -> List[str]:
         args = []
-        for key, value in self._vllm_args.items():
+        for key, value in self._server_args.items():
             if value is None:
                 continue
             if key == "quantization" and value == "auto":
@@ -55,16 +55,20 @@ class VLLMServer(BenchmarkBase):
             else:
                 args.extend([f"--{key.replace('_', '-')}", str(value)])
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=self._compile_cache_dir, encoding="utf-8", delete=False) as f:
-            dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
-            f.write(f"compilation_config: '{dict_config_str}'")
+        if self._is_dry_run:
+            self.temp_compile_config_file = "/tmp/dummy_compile_config.yaml"
+            config_path = self.temp_compile_config_file
+        else:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=self._compile_cache_dir, encoding="utf-8", delete=False) as f:
+                dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
+                f.write(f"compilation_config: '{dict_config_str}'")
+                config_path = f.name
+                self.temp_compile_config_file = f.name
 
-            config_path = f.name
-            if not self._in_container:
-                config_path = str(Path("/root/.cache/compile_config") / Path(f.name).name)
+        if not self._in_container:
+            config_path = str(Path("/root/.cache/compile_config") / Path(config_path).name)
 
-            args.extend(["--config", config_path])
-            self.temp_compile_config_file = f.name
+        args.extend(["--config", config_path])
         return args
 
     def get_server_run_cmd(self, no_enable_prefix_caching: bool) -> List[str]:
@@ -160,9 +164,8 @@ class VLLMServer(BenchmarkBase):
             logger.info("Dry run - Docker server command:")
             logger.info(" ".join(cmd))
             logger.info("config file content:")
-            with open(self.temp_compile_config_file, "r", encoding="utf-8") as f:
-                compile_config = yaml.safe_load(f)
-                logger.info(compile_config)
+            dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
+            logger.info(f"compilation_config: '{dict_config_str}'")
             return
 
         logger.info("Started to initialize vllm server ...")

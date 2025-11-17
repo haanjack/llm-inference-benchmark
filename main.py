@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 
 def get_args():
     """Benchmark arguments"""
-    parser = argparse.ArgumentParser(description='Run vLLM benchmarks')
+    parser = argparse.ArgumentParser(description='Run LLM benchmarks')
 
     # benchmark configuration
     parser.add_argument('--model-config', required=True,
-                        help='Model config file path')
+                        help='Model config file name')
     parser.add_argument('--model-path-or-id', required=True,
                         help='Model checkpoint path or model id in huggingface hub')
     parser.add_argument('--backend', default='vllm', choices=['vllm', 'sglang'],
@@ -77,9 +77,11 @@ def main():
     try:
         args = get_args()
 
+        model_config_path = f"configs/models/{args.model_config}-{args.backend}"
+
         server_kwargs = {
             "env_file": args.env_file,
-            "model_config": args.model_config,
+            "model_config": model_config_path,
             "model_path_or_id": args.model_path_or_id,
             "model_root_dir": args.model_root_dir,
             "gpu_devices": args.gpu_devices,

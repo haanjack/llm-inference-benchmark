@@ -8,7 +8,7 @@ envs:
   VLLM_ROCM_USE_AITER_TRITON_FUSED_MUL_ADD: 1
   VLLM_ROCM_USE_AITER_TRITON_FUSED_SHARED_EXPERTS: 1
 
-vllm_server_args:
+server_args:
   # Settings from AMD documentation
   quantization: auto
   kv-cache-dtype: auto

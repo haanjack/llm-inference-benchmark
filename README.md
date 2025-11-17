@@ -44,6 +44,7 @@ There are several interesting argument: `model-config` and `test-plan`. These ar
 Each model has optimal configuration and settings. To support this divergency, this benchmark script provide individual model config yaml file.
 
 Following snippet shows the basic format of the model config file.
+
 ```yaml
 # Default model configuration
 
@@ -52,11 +53,13 @@ env:
   # HUGGING_FACE_HUB_TOKEN: "your_token_here"
   VLLM_ROCM_USE_AITER: 1
 
-vllm_server_args:
-  # Arguments for the vLLM server
+  SGLANG_USE_AITER: 1
+
+server_args:
+  ## Arguments for the vLLM server
   quantization: fp8
   kv-cache-dtype: auto
-  
+
   # Add other vLLM server arguments here
   # example:
   # max_model_len: 1024
@@ -66,6 +69,15 @@ vllm_server_args:
   # block-size: 64
   # no-enable-prefix-caching: true
   # async-scheduling: true
+
+  ## Arguments for the SGLang server
+  log-level: "info"
+  # mem-fraction-static: 0.8
+  # disable-raix-cache: true
+  chunked-prefill-size: 196608
+  max-prefill-tokens: 196608
+  num-continous-decode-steps: 4
+  cuda-graph-max-bs: 128
 
 compilation_config:
   cudagraph_mode: "FULL_AND_PIECEWISE"
@@ -222,3 +234,9 @@ python tools/profiler/visualize_layerwise_profile.py \\
 1. Benchmark with other parallelism
 1. Writing graph drawing code
 1. Benchmark with PD disaggregation
+
+
+# TODO:2
+1. supprot sglang / gen-ai perf
+1. warmup by this suite
+1. total results with jsonl
