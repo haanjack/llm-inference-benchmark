@@ -29,10 +29,8 @@ def get_args():
                         help='Model checkpoint path or model id in huggingface hub')
     parser.add_argument('--backend', default='vllm', choices=['vllm', 'sglang'],
                         help='LLM serving backend to use')
-    parser.add_argument('--vllm-image',
-                        help='vLLM Docker image.')
-    parser.add_argument('--sglang-image',
-                        help='SGLang Docker image.')
+    parser.add_argument('--image', required=True,
+                        help='Docker image for the selected backend (vLLM or SGLang).')
     parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan YAML file in configs/benchmark_plans/ \
                             (without .yaml extension)')
@@ -64,11 +62,6 @@ def get_args():
 
     args = parser.parse_args()
 
-    if args.backend == 'vllm' and not args.vllm_image:
-        parser.error("--vllm-image is required when backend is 'vllm'")
-    if args.backend == 'sglang' and not args.sglang_image:
-        parser.error("--sglang-image is required when backend is 'sglang'")
-
     return args
 
 
@@ -78,6 +71,7 @@ def main():
         args = get_args()
 
         server_kwargs = {
+            "image": args.image,
             "env_file": args.env_file,
             "model_config": args.model_config,
             "model_path_or_id": args.model_path_or_id,
@@ -92,18 +86,18 @@ def main():
         }
 
         if args.backend == 'vllm':
-            server = VLLMServer(vllm_image=args.vllm_image, **server_kwargs)
+            server = VLLMServer(**server_kwargs)
         elif args.backend == 'sglang':
-            server = SGLangServer(sglang_image=args.sglang_image, **server_kwargs)
+            server = SGLangServer(**server_kwargs)
         else:
             raise ValueError(f"Unknown backend: {args.backend}")
 
         server.start()
 
         if args.benchmark_client == 'vllm':
-            client = VLLMClient(server=server, is_dry_run=args.server_test)
+            client = VLLMClient(server=server, is_dry_run=args.server_test or args.dry_run)
         elif args.benchmark_client == 'genai-perf':
-            client = GenAIPerfClient(server=server, is_dry_run=args.server_test)
+            client = GenAIPerfClient(server=server, is_dry_run=args.server_test or args.dry_run)
         else:
             raise ValueError(f"Unknown benchmark client: {args.benchmark_client}")
 

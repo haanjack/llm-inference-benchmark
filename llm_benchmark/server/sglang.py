@@ -20,12 +20,12 @@ logger = logging.getLogger(__name__)
 class SGLangServer(BenchmarkBase):
     """SGLang Server management."""
     def __init__(self,
-                 sglang_image: str,
+                 image: str,
                  test_plan: str,
                  no_warmup: bool = False,
                  **kwargs):
         super().__init__(**kwargs)
-        self.image = sglang_image
+        self.image = image
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._is_no_warmup = no_warmup
 
@@ -50,27 +50,9 @@ class SGLangServer(BenchmarkBase):
 
     def get_server_run_cmd(self, disable_radix_cache: bool) -> List[str]:
         """Build server run command with container execution"""
-        group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
-        cmd = [
-            self._container_runtime, "run", "-d",
-            "--name", self.container_name,
-            "-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface",
-            "--device", "/dev/kfd", "--device", "/dev/dri", "--device", "/dev/mem",
-            "--group-add", group_option,
-            "--network=host",
-            "--cap-add=CAP_SYS_ADMIN",
-            "--cap-add=SYS_PTRACE",
-            "--shm-size=16gb",
-            "--security-opt", "seccomp=unconfined",
-            "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
-            "--env-file", self._common_env_file,
-        ]
-
-        for key, value in self._env_vars.items():
-            cmd.extend(["-e", f"{key}={value}"])
+        cmd = self._get_docker_run_common_command()
 
         cmd.extend([
-            "-v", f"{self._model_path}:{self.get_model_path()}:ro",
             "-v", f"{self._host_cache_dir}:/root/.cache",
             self.image,
             "python", "-m", "sglang.launch_server",

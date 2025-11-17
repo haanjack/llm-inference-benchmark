@@ -62,7 +62,6 @@ class GenAIPerfClient(BenchmarkClientBase):
             "--random-seed", "0",
             "--endpoint-type", "chat",
             "--endpoint", f"http://localhost:{self.server.vllm_port}/v1/completions"
-            "--disable-tqdm",
         ]
         cmd.extend(dataset_args)
 

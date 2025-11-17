@@ -102,6 +102,31 @@ class BenchmarkBase:
 
         self._vllm_port = BENCHMARK_BASE_PORT + lead_gpu
 
+    def _get_docker_run_common_command(self) -> List[str]:
+        group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
+        cmd = [
+            self._container_runtime, "run", "-d",
+            "--name", self._container_name,
+            "--device", "/dev/kfd", "--device", "/dev/dri", "--device", "/dev/mem",
+            "--group-add", group_option,
+            "--network=host",
+            "--cap-add=CAP_SYS_ADMIN",
+            "--cap-add=SYS_PTRACE",
+            "--shm-size=16gb",
+            "--security-opt", "seccomp=unconfined",
+            "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
+            "--env-file", self._common_env_file,
+            "-v", f"{self._model_path}:{self.get_model_path()}:ro",
+        ]
+
+        if os.environ.get('HF_HOME'):
+            cmd.extend(["-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface"])
+
+        for key, value in self._env_vars.items():
+            cmd.extend(["-e", f"{key}={value}"])
+
+        return cmd
+
     def _is_docker_available(self) -> bool:
         """Check if Docker is installed on the system."""
         try:

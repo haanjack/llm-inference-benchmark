@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 class VLLMServer(BenchmarkBase):
     """vLLM Server management."""
     def __init__(self,
-                vllm_image: str,
+                image: str,
                 test_plan: str,
                 no_warmup: bool = False,
                 **kwargs):
         super().__init__(**kwargs)
-        self.image = vllm_image
+        self.image = image
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._is_no_warmup = no_warmup
 
@@ -73,29 +73,10 @@ class VLLMServer(BenchmarkBase):
 
     def get_server_run_cmd(self, no_enable_prefix_caching: bool) -> List[str]:
         """Build server run command with container execution"""
-        group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
-        cmd = [
-            self._container_runtime, "run", "-d",
-            "--name", self.container_name,
-            "-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface",
-            "--device", "/dev/kfd", "--device", "/dev/dri", "--device", "/dev/mem",
-            "--group-add", group_option,
-            "--network=host",
-            "--cap-add=CAP_SYS_ADMIN",
-            "--cap-add=SYS_PTRACE",
-            "--shm-size=16gb",
-            "--security-opt", "seccomp=unconfined",
-            "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
-            "--env-file", self._common_env_file,
-        ]
-
-        # add inferencing control environment variables
-        for key, value in self._env_vars.items():
-            cmd.extend(["-e", f"{key}={value}"])
+        cmd = self._get_docker_run_common_command()
 
         # set volume mounts and run server command
         cmd.extend([
-            "-v", f"{self._model_path}:{self.get_model_path()}:ro",
             "-v", f"{self._host_cache_dir}:/root/.cache",
             "-v", f"{self._compile_cache_dir}:/root/.cache/compile_config",
             "-v", f"{self._aiter_cache_dir}:/root/.aiter",

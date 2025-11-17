@@ -38,7 +38,7 @@ class VLLMClient(BenchmarkClientBase):
         if not self.server.in_container:
             cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         cmd.extend([
-            "vllm", "bench",
+            "vllm", "bench", "serve",
             "--model", self.server.get_model_path(),
             "--dataset-name", dataset_name,
             "--ignore-eos",
@@ -64,7 +64,7 @@ class VLLMClient(BenchmarkClientBase):
                     cmd.extend([f"--{key.replace('_', '-')}", str(value)])
 
                 if key == 'dataset_path':
-                    cmd.append(['--dataset-path', value])
+                    cmd.extend(['--dataset-path', value])
 
         if self._is_dry_run:
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))
@@ -76,7 +76,10 @@ class VLLMClient(BenchmarkClientBase):
         log_file = self._log_dir / self.server.exp_tag / f"r{request_rate}_n{num_prompts}_b{batch_size}_{input_length}_o{output_length}_c{concurrency}.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with open(log_file, 'w', encoding='utf-8') as f:
-            f.write(f"=== Benchmark: {request_rate}, {num_prompts}, {batch_size}, {concurrency}, {input_length}, {output_length} ===\n")
+            f.write(f"=== Benchmark: request_rate: {request_rate}, num_prompts: {num_prompts}, batch_size, {batch_size}, concurrency: {concurrency}, isl: {input_length}, osl: {output_length} ===\n")
+            f.write(f"Command: {' '.join(cmd)}\n\n")
+            f.flush()
+
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
 
         return self._extract_metrics(log_file)
