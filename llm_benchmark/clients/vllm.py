@@ -33,13 +33,18 @@ class VLLMClient(BenchmarkClientBase):
         if not self.server.in_container:
             cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         cmd.extend([
-            "vllm", "bench", "serve", "--model", self.server.get_model_path(),
-            "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
-            f"--dataset-name={dataset_name}", "--ignore-eos", "--trust-remote-code",
+            "vllm", "bench",
+            "--model", self.server.get_model_path(),
+            "--dataset-name", dataset_name,
+            "--ignore-eos",
+            "--trust-remote-code",
             f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
-            f"--max-concurrency={concurrency}", f"--num-prompts={num_prompts}",
-            f"--random-input-len={input_length}", f"--random-output-len={output_length}",
-            "--tokenizer", self.server.get_model_path(), "--disable-tqdm",
+            f"--max-concurrency={concurrency}",
+            f"--num-prompts={num_prompts}",
+            f"--random-input-len={input_length}",
+            f"--random-output-len={output_length}",
+            "--tokenizer", self.server.get_model_path(),
+            "--disable-tqdm",
             "--percentile-metrics", "ttft,tpot,itl,e2el"
         ])
 

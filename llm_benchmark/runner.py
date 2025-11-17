@@ -6,7 +6,7 @@ from typing import Dict, List, Any
 import itertools
 import yaml
 
-from llm_benchmark.server.vllm import VLLMServer
+from llm_benchmark.server.base import BenchmarkBase
 from llm_benchmark.clients.base import BenchmarkClientBase
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class BenchmarkRunner:
     """Benchmark runner."""
     def __init__(self,
-                server: VLLMServer,
+                server: BenchmarkBase,
                 client: BenchmarkClientBase,
                 test_plan: str,
                 sub_tasks: List[str] = None,
@@ -55,14 +55,17 @@ class BenchmarkRunner:
         if self._is_dry_run:
             return
         self.result_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # create result_list.csv
         if not self.result_file.exists():
             with open(self.result_file, 'w', encoding='utf-8') as f:
                 f.write(','.join(self._csv_headers) + '\n')
 
     def _print_benchmark_info(self):
-        logger.info("Start vLLM benchmark")
+        logger.info("Start LLM benchmark")
         logger.info("Model Name: %s", self.server.model_name)
-        logger.info("vLLM docker image: %s", self.server.vllm_image)
+        logger.info("Backend: %s", self.server.__class__.__name__)
+        logger.info("Image: %s", self.server.image)
         logger.info("GPU devices: %s", self.server.gpu_devices)
         logger.info("Benchmark plan: %s", self._test_plan)
         logger.info("Benchmark test plan:")
@@ -184,9 +187,10 @@ class BenchmarkRunner:
                     if input("Continue? (Y/n) ").lower() in ['n', 'no']:
                         break
             except subprocess.CalledProcessError as e:
-                logger.error("Benchmark failed for plan: %s", test_plan)
-                logger.error("%s", str(e).rsplit('\n', maxsplit=1)[-1])
-                return
+                if not self._is_dry_run:
+                    logger.error("Benchmark failed for plan: %s", test_plan)
+                    logger.error("%s", str(e).rsplit('\n', maxsplit=1)[-1])
+                    return
 
     def _save_results(self, metrics: Dict[str, float], **kwargs):
         result_line = (

@@ -1,10 +1,12 @@
 import logging
 import os
 import subprocess
+import time
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
 import yaml
+import requests
 from huggingface_hub import snapshot_download
 
 # Configure logging
@@ -30,6 +32,8 @@ class BenchmarkBase:
                  dry_run: bool = False,
                  in_container: bool = False):
 
+        self.image = None
+        self.server_process: Optional[subprocess.Popen] = None
         self._common_env_file = env_file
         self._env_vars = {}
         self._vllm_args = {}
@@ -38,6 +42,7 @@ class BenchmarkBase:
         self._model_config = model_config
         self._is_dry_run = dry_run
         self._in_container = in_container
+        self._log_process: Optional[subprocess.Popen] = None
 
         self._system_config(gpu_devices, num_gpus)
         self._parallel_size = {'tp': str(self._num_gpus)}
@@ -54,6 +59,25 @@ class BenchmarkBase:
         self._container_runtime = None
         if not self._in_container:
             self._container_runtime = "docker" if self._is_docker_available() else "podman"
+
+    def _setup_container_name(self):
+        slurm_job_id = os.environ.get("SLURM_JOB_ID", None)
+        self._container_name = ""
+        if slurm_job_id:
+            self._container_name = f"{slurm_job_id}-"
+        self._container_name += f"{os.path.basename(self._model_name)}-{self.image_tag}-g{self._gpu_devices.replace(',', '_')}"
+
+    def _setup_logging_dirs(self):
+        current_time = time.strftime("%Y%m%d-%H%M%S")
+        self._log_dir = Path("logs") / self._model_name / self.image_tag
+        self._exp_tag = f"{Path(self._model_config).stem}-tp{self._parallel_size.get('tp', '1')}"
+        self.server_log = self._log_dir / self._exp_tag / "server_logs" / f"{self._parallel_size.get('tp', '1')}-{current_time}.txt"
+        if not self._is_dry_run:
+            self.server_log.parent.mkdir(parents=True, exist_ok=True)
+
+    def _cache_dir(self, cache_name: str):
+        self._host_cache_dir = Path.cwd() / cache_name / self._exp_tag
+        self._host_cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _system_config(self, gpu_devices: Union[str, None], num_gpus: Union[int, None]):
         """Required benchmark system configurations."""
@@ -166,6 +190,82 @@ class BenchmarkBase:
             # model path is translated path in container
             return str(self._container_model_path)
 
+    def _is_server_process_alive(self) -> bool:
+        if self._is_dry_run:
+            return True
+        if self._in_container:
+            return self.server_process and self.server_process.poll() is None
+        else:
+            try:
+                cmd = [self._container_runtime, "ps", "-q", "--filter", f"name=^{self._container_name}$"]
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5)
+                return bool(result.stdout.strip())
+            except (subprocess.SubprocessError, FileNotFoundError):
+                return False
+
+    def _wait_for_server(self, timeout: int = 2 * 60 * 60) -> bool:
+        start_time = time.time()
+        last_log_time = start_time
+        while True:
+            try:
+                response = requests.get(f"http://localhost:{self._vllm_port}/v1/models", timeout=10)
+                if response.status_code == 200:
+                    return True
+            except requests.exceptions.RequestException:
+                pass
+
+            if not self._is_server_process_alive():
+                logger.error("Server process is not running. Check server log: %s", self.server_log)
+                return False
+
+            elapsed_time = time.time() - start_time
+            if elapsed_time > timeout:
+                logger.error("Timeout waiting for server. Check log: %s", self.server_log)
+                return False
+
+            if time.time() - last_log_time > 60:
+                last_log_time = time.time()
+                logger.info("Waiting for server... %s seconds elapsed", int(elapsed_time))
+            time.sleep(5)
+
+    def cleanup_server_process(self):
+        """Cleanup server process."""
+        if self._is_dry_run:
+            return
+
+        if self.server_process:
+            logger.info("Shutting down server process...")
+            self.server_process.terminate()
+            try:
+                self.server_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.server_process.kill()
+
+    def cleanup_container(self):
+        """Cleanup container."""
+        if self._is_dry_run:
+            return
+
+        self._cleanup_log_processes()
+        if not self._container_runtime or not self._container_name:
+            logger.error("Container runtime or name not defined.")
+            return
+        try:
+            subprocess.run([self._container_runtime, "rm", "-f", self._container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        except subprocess.CalledProcessError as e:
+            logger.warning("Failed to remove container %s: %s", self._container_name, e)
+
+    def _cleanup_log_processes(self):
+        """Cleanup log processes."""
+        if self._log_process is None:
+            return
+
+        try:
+            self._log_process.terminate()
+            self._log_process.wait(timeout=5)
+        except (subprocess.TimeoutExpired, ProcessLookupError):
+            self._log_process.kill()
+
     @property
     def in_container(self) -> bool:
         """Returns True if running in container mode."""
@@ -190,3 +290,8 @@ class BenchmarkBase:
     def num_gpus(self) -> int:
         """Returns the number of GPUs."""
         return self._num_gpus
+
+    @property
+    def image_tag(self) -> str:
+        """Returns the Docker image tag."""
+        return self.image.split(':')[-1]

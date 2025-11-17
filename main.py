@@ -5,6 +5,7 @@ import logging
 import sys
 
 from llm_benchmark.server.vllm import VLLMServer
+from llm_benchmark.server.sglang import SGLangServer
 from llm_benchmark.runner import BenchmarkRunner
 from llm_benchmark.clients.vllm import VLLMClient
 from llm_benchmark.clients.genai_perf import GenAIPerfClient
@@ -26,8 +27,12 @@ def get_args():
                         help='Model config file path')
     parser.add_argument('--model-path-or-id', required=True,
                         help='Model checkpoint path or model id in huggingface hub')
-    parser.add_argument('--vllm-image', required=True,
+    parser.add_argument('--backend', default='vllm', choices=['vllm', 'sglang'],
+                        help='LLM serving backend to use')
+    parser.add_argument('--vllm-image',
                         help='vLLM Docker image.')
+    parser.add_argument('--sglang-image',
+                        help='SGLang Docker image.')
     parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan YAML file in configs/benchmark_plans/ \
                             (without .yaml extension)')
@@ -43,7 +48,7 @@ def get_args():
                         help='Number of GPUs')
     parser.add_argument('--arch', default=None,
                         help='Target GPU architecture for model config')
-    parser.add_argument('--benchmark-client', default='vllm',
+    parser.add_argument('--benchmark-client', default='genai-perf',
                         choices=['vllm', 'genai-perf'],
                         help='Benchmark client to use')
 
@@ -59,6 +64,11 @@ def get_args():
 
     args = parser.parse_args()
 
+    if args.backend == 'vllm' and not args.vllm_image:
+        parser.error("--vllm-image is required when backend is 'vllm'")
+    if args.backend == 'sglang' and not args.sglang_image:
+        parser.error("--sglang-image is required when backend is 'sglang'")
+
     return args
 
 
@@ -67,26 +77,33 @@ def main():
     try:
         args = get_args()
 
-        server = VLLMServer(
-            env_file=args.env_file,
-            model_config=args.model_config,
-            model_path_or_id=args.model_path_or_id,
-            model_root_dir=args.model_root_dir,
-            vllm_image=args.vllm_image,
-            gpu_devices=args.gpu_devices,
-            num_gpus=args.num_gpus,
-            arch=args.arch,
-            dry_run=args.dry_run,
-            no_warmup=args.no_warmup,
-            in_container=args.in_container,
-            test_plan=args.test_plan,
-        )
+        server_kwargs = {
+            "env_file": args.env_file,
+            "model_config": args.model_config,
+            "model_path_or_id": args.model_path_or_id,
+            "model_root_dir": args.model_root_dir,
+            "gpu_devices": args.gpu_devices,
+            "num_gpus": args.num_gpus,
+            "arch": args.arch,
+            "dry_run": args.dry_run,
+            "no_warmup": args.no_warmup,
+            "in_container": args.in_container,
+            "test_plan": args.test_plan,
+        }
+
+        if args.backend == 'vllm':
+            server = VLLMServer(vllm_image=args.vllm_image, **server_kwargs)
+        elif args.backend == 'sglang':
+            server = SGLangServer(sglang_image=args.sglang_image, **server_kwargs)
+        else:
+            raise ValueError(f"Unknown backend: {args.backend}")
+
         server.start()
 
         if args.benchmark_client == 'vllm':
             client = VLLMClient(server=server, is_dry_run=args.server_test)
         elif args.benchmark_client == 'genai-perf':
-            client = GenAIPerfClient()
+            client = GenAIPerfClient(server=server, is_dry_run=args.server_test)
         else:
             raise ValueError(f"Unknown benchmark client: {args.benchmark_client}")
 

@@ -2,3 +2,4 @@ logs/**/*
 slogs/**/*
 .vscode/**/*
 vllm_cache/**/*
+**/*/__pycache__/**/*

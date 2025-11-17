@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import tempfile
 import requests
+import datetime
 import yaml
 import dotenv
 
@@ -22,42 +23,24 @@ class VLLMServer(BenchmarkBase):
                 no_warmup: bool = False,
                 **kwargs):
         super().__init__(**kwargs)
-        self._vllm_image = vllm_image
+        self.image = vllm_image
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._is_no_warmup = no_warmup
 
-        self._image_tag = self._vllm_image.split(':')[-1]
-        self.server_process = None
         self.temp_compile_config_file = None
-        self._log_process: Optional[subprocess.Popen] = None
 
         self._setup_container_name()
         self._setup_logging_dirs()
         self._cache_dir()
 
-    def _setup_container_name(self):
-
-        slurm_job_id = os.environ.get("SLURM_JOB_ID", None)
-        self._container_name = ""
-        if slurm_job_id:
-            self._container_name = f"{slurm_job_id}-"
-        self._container_name += f"{os.path.basename(self._model_name)}-{self._image_tag}-g{self._gpu_devices.replace(',', '_')}"
-
-    def _setup_logging_dirs(self):
-        self._log_dir = Path("logs") / self._model_name / self._image_tag
-        self.server_log = self._log_dir / "server_logs" / f"{os.path.basename(self._model_name)}-{self._image_tag}-t{self._parallel_size.get('tp', '1')}.txt"
-        self._exp_tag = f"{Path(self._model_config).stem}_tp{self._parallel_size.get('tp', '1')}"
-        if not self._is_dry_run:
-            self.server_log.parent.mkdir(parents=True, exist_ok=True)
-
     def _cache_dir(self):
         """Configure vllm cache directories to reduce compilation overhead."""
-        self._host_cache_dir = Path.cwd() / "vllm_cache" / self._exp_tag
-        self._host_cache_dir.mkdir(parents=True, exist_ok=True)
+        super()._cache_dir("vllm_cache")
         self._aiter_cache_dir = self._host_cache_dir / "aiter"
-        self._aiter_cache_dir.mkdir(parents=True, exist_ok=True)
         self._compile_cache_dir = self._host_cache_dir / "compile_config"
-        self._compile_cache_dir.mkdir(parents=True, exist_ok=True)
+        if not self._is_dry_run:
+            self._aiter_cache_dir.mkdir(parents=True, exist_ok=True)
+            self._compile_cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _build_vllm_args(self) -> List[str]:
         args = []
@@ -114,7 +97,7 @@ class VLLMServer(BenchmarkBase):
             "-v", f"{self._aiter_cache_dir}:/root/.aiter",
             "-v", f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
             "-w", f"{os.environ.get('HOME')}",
-            self._vllm_image,
+            self.image,
             "vllm", "serve",
             self.get_model_path(),
             "--host", "0.0.0.0",
@@ -180,12 +163,11 @@ class VLLMServer(BenchmarkBase):
             with open(self.temp_compile_config_file, "r", encoding="utf-8") as f:
                 compile_config = yaml.safe_load(f)
                 logger.info(compile_config)
-        else:
-            logger.info("Started to initialize vllm server ...")
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
-
-        if self._is_dry_run:
             return
+
+        logger.info("Started to initialize vllm server ...")
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+
         with open(self.server_log, 'a', encoding='utf-8') as f:
             self._log_process = subprocess.Popen(
                 [self._container_runtime, "logs", "-f", self._container_name],
@@ -217,43 +199,13 @@ class VLLMServer(BenchmarkBase):
         with open(self.server_log, 'w', encoding='utf-8') as f:
             self.server_process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env)
 
-    def _is_server_process_alive(self) -> bool:
-        if self._is_dry_run:
-            return True
-        if self._in_container:
-            return self.server_process and self.server_process.poll() is None
-        else:
-            try:
-                cmd = [self._container_runtime, "ps", "-q", "--filter", f"name=^{self._container_name}$"]
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5)
-                return bool(result.stdout.strip())
-            except (subprocess.SubprocessError, FileNotFoundError):
-                return False
-
     def _wait_for_server(self, timeout: int = 2 * 60 * 60) -> bool:
-        start_time = time.time()
-        last_log_time = start_time
-        while True:
-            try:
-                response = requests.get(f"http://localhost:{self._vllm_port}/v1/models", timeout=10)
-                if response.status_code == 200 and response.json():
-                    return True
-            except requests.exceptions.RequestException:
-                pass
-
-            if not self._is_server_process_alive():
-                logger.error("vLLM server process is not running. Check server log: %s", self.server_log)
-                return False
-
-            elapsed_time = time.time() - start_time
-            if elapsed_time > timeout:
-                logger.error("Timeout waiting for vLLM server. Check log: %s", self.server_log)
-                return False
-
-            if time.time() - last_log_time > 60:
-                last_log_time = time.time()
-                logger.info("Waiting for vLLM server... %s seconds elapsed", int(elapsed_time))
-            time.sleep(5)
+        if super()._wait_for_server(timeout):
+            # vLLM can return 200 with an empty list before it's truly ready
+            response = requests.get(f"http://localhost:{self._vllm_port}/v1/models", timeout=10)
+            if response.json():
+                return True
+        return False
 
     def _warmup_server(self):
         if self._is_dry_run or self._is_no_warmup:
@@ -261,17 +213,7 @@ class VLLMServer(BenchmarkBase):
             return
 
         logger.info("Warming up the server...")
-        warmup_cmd = []
-        if not self._in_container:
-            warmup_cmd.extend([self._container_runtime, "exec", self._container_name])
-        warmup_cmd.extend([
-            "vllm", "bench", "serve", "--model", self.get_model_path(),
-            "--backend", "vllm", "--host", "localhost", f"--port={self.vllm_port}",
-            "--dataset-name", "random", "--ignore-eos", "--trust-remote-code",
-            "--request-rate=10", "--max-concurrency=1", "--num-prompts=4",
-            "--random-input-len=16", "--random-output-len=16",
-            "--tokenizer", self.get_model_path(), "--disable-tqdm"
-        ])
+        warmup_cmd = ["curl", f"http://localhost:{self.vllm_port}/v1/models"]
         start_time = time.time()
         subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         logger.info("Warmup complete in %.2f seconds.", time.time() - start_time)
@@ -283,44 +225,6 @@ class VLLMServer(BenchmarkBase):
         else:
             self.cleanup_container()
         self._cleanup_temp_files()
-
-    def cleanup_server_process(self):
-        """Cleanup server process."""
-        if self._is_dry_run:
-            return
-
-        if self.server_process:
-            logger.info("Shutting down vLLM server process...")
-            self.server_process.terminate()
-            try:
-                self.server_process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.server_process.kill()
-
-    def cleanup_container(self):
-        """Cleanup container."""
-        if self._is_dry_run:
-            return
-
-        self._cleanup_log_processes()
-        if not self._container_runtime or not self._container_name:
-            logger.error("Container runtime or name not defined.")
-            return
-        try:
-            subprocess.run([self._container_runtime, "rm", "-f", self._container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        except subprocess.CalledProcessError as e:
-            logger.warning("Failed to remove container %s: %s", self._container_name, e)
-
-    def _cleanup_log_processes(self):
-        """Cleanup log processes."""
-        if self._log_process is None:
-            return
-
-        try:
-            self._log_process.terminate()
-            self._log_process.wait(timeout=5)
-        except (subprocess.TimeoutExpired, ProcessLookupError):
-            self._log_process.kill()
 
     def _cleanup_temp_files(self):
         """Cleanup temporary files."""
@@ -335,14 +239,9 @@ class VLLMServer(BenchmarkBase):
         self.temp_compile_config_file = None
 
     @property
-    def vllm_image(self) -> str:
-        """Returns the vLLM Docker image."""
-        return self._vllm_image
-
-    @property
     def image_tag(self) -> str:
         """Returns the vLLM Docker image tag."""
-        return self._image_tag
+        return self.image.split(':')[-1]
 
     @property
     def container_runtime(self) -> Optional[str]:
