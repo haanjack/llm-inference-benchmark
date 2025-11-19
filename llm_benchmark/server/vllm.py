@@ -18,24 +18,20 @@ logger = logging.getLogger(__name__)
 class VLLMServer(BenchmarkBase):
     """vLLM Server management."""
     def __init__(self,
-                image: str,
                 test_plan: str,
                 no_warmup: bool = False,
                 **kwargs):
         super().__init__(**kwargs)
-        self.image = image
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._is_no_warmup = no_warmup
 
         self.temp_compile_config_file = None
 
-        self._setup_container_name()
-        self._setup_logging_dirs()
         self._cache_dir()
 
-    def _cache_dir(self):
+    def _cache_dir(self, cache_name: str = "vllm_cache"):
         """Configure vllm cache directories to reduce compilation overhead."""
-        super()._cache_dir("vllm_cache")
+        super()._cache_dir(cache_name)
         self._aiter_cache_dir = self._host_cache_dir / "aiter"
         self._compile_cache_dir = self._host_cache_dir / "compile_config"
         if not self._is_dry_run:
@@ -152,7 +148,7 @@ class VLLMServer(BenchmarkBase):
         logger.info("Started to initialize vllm server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
-        with open(self.server_log, 'a', encoding='utf-8') as f:
+        with open(self.server_log_path, 'a', encoding='utf-8') as f:
             self._log_process = subprocess.Popen(
                 [self._container_runtime, "logs", "-f", self._container_name],
                 stdout=f,
@@ -179,8 +175,8 @@ class VLLMServer(BenchmarkBase):
             BENCHMARK_BASE_PORT = int(server_env['BENCHMARK_BASE_PORT'])
             del server_env['BENCHMARK_BASE_PORT']
 
-        self.server_log.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.server_log, 'w', encoding='utf-8') as f:
+        self.server_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.server_log_path, 'w', encoding='utf-8') as f:
             self.server_process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env)
 
     def _wait_for_server(self, timeout: int = 2 * 60 * 60) -> bool:

@@ -22,6 +22,7 @@ BENCHMARK_BASE_PORT = 23400
 class BenchmarkBase:
     """Base class for benchmark components."""
     def __init__(self,
+                 image: str = None,
                  env_file: str = None,
                  model_path_or_id: str = None,
                  model_root_dir: str = None,
@@ -32,7 +33,7 @@ class BenchmarkBase:
                  dry_run: bool = False,
                  in_container: bool = False):
 
-        self.image = None
+        self.image = image
         self.server_process: Optional[subprocess.Popen] = None
         self._common_env_file = env_file
         self._env_vars = {}
@@ -43,43 +44,55 @@ class BenchmarkBase:
         self._is_dry_run = dry_run
         self._in_container = in_container
         self._log_process: Optional[subprocess.Popen] = None
-
-        self._system_config(gpu_devices, num_gpus)
-        self._parallel_size = {'tp': str(self._num_gpus)}
-
-        self._load_model_config()
+        self._model_path_or_id = model_path_or_id
 
         self._model_path = self._load_model_from_path_or_hub(model_path_or_id, model_root_dir)
         self._model_name = self._model_path.name
         self._container_model_path = Path(f"/models/{self._model_name}")
 
+        # Initialize container runtime
+        self._container_runtime = None
+        if not self.in_container:
+            self._container_runtime = "docker" if self._is_docker_available() else "podman"
+            self._container_name = self._setup_container_name()
+            self._setup_logging_dirs()
+
+        if self.endpoint is None:
+            self._gpu_devices, self._num_gpus, self._port = self._get_system_config(gpu_devices, num_gpus)
+            self._parallel_size = {'tp': str(self.num_gpus)}
+
+            self._load_model_config()
+
+
         if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model at {self._model_name} in {self.get_model_path()}.")
 
-        self._container_runtime = None
-        if not self._in_container:
-            self._container_runtime = "docker" if self._is_docker_available() else "podman"
-
     def _setup_container_name(self):
         slurm_job_id = os.environ.get("SLURM_JOB_ID", None)
-        self._container_name = ""
+        container_name = ""
         if slurm_job_id:
-            self._container_name = f"{slurm_job_id}-"
-        self._container_name += f"{os.path.basename(self._model_name)}-{self.image_tag}-g{self._gpu_devices.replace(',', '_')}"
+            container_name = f"{slurm_job_id}-"
+        container_name += f"{os.path.basename(self._model_name)}-{self.image_tag}"
+        if hasattr(self, '_gpu_devices'):
+            container_name += f"-g{self._gpu_devices.replace(',', '_')}"
+
+        return container_name
 
     def _setup_logging_dirs(self):
         current_time = time.strftime("%Y%m%d-%H%M%S")
         self._log_dir = Path("logs") / self._model_name / self.image_tag
-        self._exp_tag = f"{Path(self._model_config).stem}-tp{self._parallel_size.get('tp', '1')}"
-        self.server_log = self._log_dir / self._exp_tag / "server_logs" / f"{self._parallel_size.get('tp', '1')}-{current_time}.txt"
+        self._exp_tag = f"{Path(self._model_config).stem}"
+        if not self.endpoint:
+            self._exp_tag += f"-tp{self._parallel_size.get('tp', '1')}"
+            self.server_log_path = self._log_dir / self._exp_tag / "server_logs" / f"{self._parallel_size.get('tp', '1')}-{current_time}.txt"
         if not self._is_dry_run:
-            self.server_log.parent.mkdir(parents=True, exist_ok=True)
+            self.server_log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _cache_dir(self, cache_name: str):
         self._host_cache_dir = Path.cwd() / cache_name / self._exp_tag
         self._host_cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def _system_config(self, gpu_devices: Union[str, None], num_gpus: Union[int, None]):
+    def _get_system_config(self, gpu_devices: Union[str, None], num_gpus: Union[int, None]):
         """Required benchmark system configurations."""
         if gpu_devices is None and num_gpus is None:
             raise AssertionError("GPU devices or number of GPUs must be specified.")
@@ -91,16 +104,18 @@ class BenchmarkBase:
             gpu_array = [dev.strip() for dev in gpu_devices.split(',') if dev.strip()]
             if not gpu_array:
                 raise ValueError("gpu_devices string is invalid or empty.")
-            self._gpu_devices = ",".join(gpu_array)
-            self._num_gpus = len(gpu_array)
+            gpu_devices = ",".join(gpu_array)
+            num_gpus = len(gpu_array)
             lead_gpu = int(gpu_array[0])
         elif num_gpus is not None:
-            self._num_gpus = int(num_gpus)
-            if self._num_gpus <= 0:
+            num_gpus = int(num_gpus)
+            if num_gpus <= 0:
                 raise ValueError("num_gpus must be a positive integer.")
-            self._gpu_devices = ",".join(map(str, range(self._num_gpus)))
+            gpu_devices = ",".join(map(str, range(num_gpus)))
 
-        self._port = BENCHMARK_BASE_PORT + lead_gpu
+        port = BENCHMARK_BASE_PORT + lead_gpu
+
+        return  gpu_devices, num_gpus, port
 
     def _get_docker_run_common_command(self) -> List[str]:
         group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
@@ -208,7 +223,7 @@ class BenchmarkBase:
 
     def get_model_path(self) -> str:
         """Select proper model path following execution mode"""
-        if self._in_container:
+        if self.in_container:
             # model path is directly accessible path in container
             return str(self._model_path)
         else:
@@ -218,7 +233,7 @@ class BenchmarkBase:
     def _is_server_process_alive(self) -> bool:
         if self._is_dry_run:
             return True
-        if self._in_container:
+        if self.in_container:
             return self.server_process and self.server_process.poll() is None
         else:
             try:
@@ -240,12 +255,12 @@ class BenchmarkBase:
                 pass
 
             if not self._is_server_process_alive():
-                logger.error("Server process is not running. Check server log: %s", self.server_log)
+                logger.error("Server process is not running. Check server log: %s", self.server_log_path)
                 return False
 
             elapsed_time = time.time() - start_time
             if elapsed_time > timeout:
-                logger.error("Timeout waiting for server. Check log: %s", self.server_log)
+                logger.error("Timeout waiting for server. Check log: %s", self.server_log_path)
                 return False
 
             if time.time() - last_log_time > 60:
@@ -307,8 +322,15 @@ class BenchmarkBase:
         return self._model_name
 
     @property
+    def model_path_or_id(self) -> str:
+        """Returns the model path or ID."""
+        return self.model_path_or_id
+
+    @property
     def gpu_devices(self) -> str:
         """Returns the GPU devices string."""
+        if not hasattr(self, '_gpu_devices'):
+            return -1
         return self._gpu_devices
 
     @property
@@ -320,3 +342,23 @@ class BenchmarkBase:
     def image_tag(self) -> str:
         """Returns the Docker image tag."""
         return self.image.split(':')[-1]
+
+    @property
+    def container_runtime(self) -> str:
+        """Returns the container runtime."""
+        return self._container_runtime
+
+    @property
+    def container_name(self) -> str:
+        """Returns the container name."""
+        return self._container_name
+
+    @property
+    def port(self) -> int:
+        """Returns the port number."""
+        return self._port
+
+    @property
+    def endpoint(self) -> str:
+        """returns server endpoint"""
+        return f"http://0.0.0.0:{self.port}"

@@ -6,6 +6,7 @@ import sys
 
 from llm_benchmark.server.vllm import VLLMServer
 from llm_benchmark.server.sglang import SGLangServer
+from llm_benchmark.server.remote import RemoteServer
 from llm_benchmark.runner import BenchmarkRunner
 from llm_benchmark.clients.vllm import VLLMClient
 from llm_benchmark.clients.genai_perf import GenAIPerfClient
@@ -49,6 +50,9 @@ def get_args():
     parser.add_argument('--benchmark-client', default='vllm',
                         choices=['vllm', 'genai-perf'],
                         help='Benchmark client to use')
+    parser.add_argument('--endpoint', default=None,
+                        help='Specify a remote endpoint URL to benchmark against. '
+                             'If provided, the script will not start a local server.')
 
     # test control
     parser.add_argument('--no-warmup', action='store_true',
@@ -62,6 +66,12 @@ def get_args():
 
     args = parser.parse_args()
 
+    if args.endpoint:
+        # When using an endpoint, some arguments related to server startup are not needed
+        # but we still need model and image for logging.
+        # Let's make them optional if endpoint is provided.
+        # We can achieve this by relaxing the 'required' constraint post-parsing.
+        pass
     return args
 
 
@@ -70,29 +80,44 @@ def main():
     try:
         args = get_args()
 
-        server_kwargs = {
+        if args.endpoint:
+            server_kwargs = {"endpoint": args.endpoint}
+        else:
+            server_kwargs = {
+                "image": args.image,
+                "env_file": args.env_file,
+                "model_config": args.model_config,
+                "model_path_or_id": args.model_path_or_id,
+                "model_root_dir": args.model_root_dir,
+                "gpu_devices": args.gpu_devices,
+                "num_gpus": args.num_gpus,
+                "arch": args.arch,
+                "dry_run": args.dry_run,
+                "no_warmup": args.no_warmup,
+                "in_container": args.in_container,
+                "test_plan": args.test_plan,
+            }
+
+        # Common arguments for all server types
+        server_kwargs.update({
             "image": args.image,
-            "env_file": args.env_file,
             "model_config": args.model_config,
             "model_path_or_id": args.model_path_or_id,
-            "model_root_dir": args.model_root_dir,
-            "gpu_devices": args.gpu_devices,
             "num_gpus": args.num_gpus,
-            "arch": args.arch,
             "dry_run": args.dry_run,
-            "no_warmup": args.no_warmup,
-            "in_container": args.in_container,
-            "test_plan": args.test_plan,
-        }
+        })
 
-        if args.backend == 'vllm':
-            server = VLLMServer(**server_kwargs)
-        elif args.backend == 'sglang':
-            server = SGLangServer(**server_kwargs)
+        if args.endpoint:
+            server = RemoteServer(**server_kwargs)
         else:
-            raise ValueError(f"Unknown backend: {args.backend}")
+            if args.backend == "vllm":
+                server = VLLMServer(**server_kwargs)
+            elif args.backend == "sglang":
+                server = SGLangServer(**server_kwargs)
+            else:
+                raise ValueError(f"Unknown backend: {args.backend}")
 
-        server.start()
+            server.start()
 
         if args.benchmark_client == 'vllm':
             client = VLLMClient(server=server, is_dry_run=args.server_test or args.dry_run)

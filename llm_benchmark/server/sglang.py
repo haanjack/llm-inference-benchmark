@@ -20,21 +20,17 @@ logger = logging.getLogger(__name__)
 class SGLangServer(BenchmarkBase):
     """SGLang Server management."""
     def __init__(self,
-                 image: str,
                  test_plan: str,
                  no_warmup: bool = False,
                  **kwargs):
         super().__init__(**kwargs)
-        self.image = image
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._is_no_warmup = no_warmup
 
-        self._setup_container_name()
-        self._setup_logging_dirs()
         self._cache_dir()
 
-    def _cache_dir(self):
-        super()._cache_dir("sglang_cache")
+    def _cache_dir(self, cache_name: str = "sglang_cache"):
+        super()._cache_dir(cache_name)
 
     def _build_sglang_args(self) -> List[str]:
         args = []
@@ -117,7 +113,7 @@ class SGLangServer(BenchmarkBase):
         logger.info("Started to initialize sglang server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
-        with open(self.server_log, 'a', encoding='utf-8') as f:
+        with open(self.server_log_path, 'a', encoding='utf-8') as f:
             self._log_process = subprocess.Popen(
                 [self._container_runtime, "logs", "-f", self._container_name],
                 stdout=f,
@@ -140,8 +136,8 @@ class SGLangServer(BenchmarkBase):
         for key, value in self._env_vars.items():
             server_env[key] = str(value)
 
-        self.server_log.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.server_log, 'w', encoding='utf-8') as f:
+        self.server_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.server_log_path, 'w', encoding='utf-8') as f:
             self.server_process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env)
 
     def _warmup_server(self, num_warmup_requests=5, prompt_length=16):

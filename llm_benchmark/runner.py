@@ -148,9 +148,6 @@ class BenchmarkRunner:
         return test_args, test_plans
 
     def run(self):
-        if self.server.num_gpus == 0:
-            raise ValueError("No GPU is allocated")
-
         test_args, test_plans = self._load_test_plan()
 
         try:
