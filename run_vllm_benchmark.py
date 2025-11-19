@@ -14,6 +14,7 @@ import tempfile
 import itertools
 import requests
 import yaml
+from urllib.parse import urlparse
 import dotenv
 
 from huggingface_hub import snapshot_download
@@ -39,7 +40,7 @@ def get_args():
                         help='Model config file path')
     parser.add_argument('--model-path-or-id', required=True,
                         help='Model checkpoint path or model id in huggingface hub')
-    parser.add_argument('--vllm-image', required=True,
+    parser.add_argument('--vllm-image',
                         help='vLLM Docker image.')
     parser.add_argument('--test-plan', default='test',
                         help='Benchmark test plan YAML file in configs/benchmark_plans/ \
@@ -60,6 +61,8 @@ def get_args():
     # test control
     parser.add_argument('--no-warmup', action='store_true',
                         help='no warmup at benchmark start')
+    parser.add_argument('--endpoint', type=str, default=None,
+                        help='Endpoint URL for a running vLLM server (e.g., http://localhost:8000)')
     parser.add_argument('--dry-run', action='store_true',
                         help='Show commands without executing them')
     parser.add_argument('--in-container', action='store_true',
@@ -91,8 +94,14 @@ class BenchmarkBase:
         self._compilation_config = {}
         self._arch = arch
         self._model_config = model_config
+        self._model_path_or_id = model_path_or_id
+        self._model_root_dir = model_root_dir
         self._is_dry_run = dry_run
         self._in_container = in_container
+        self._is_external_server = False
+        self._vllm_host = "localhost"
+        self._vllm_port = 0
+        self._container_runtime = None
 
         self._system_config(gpu_devices, num_gpus)
         self._parallel_size = {'tp': str(self._num_gpus)}
@@ -106,13 +115,21 @@ class BenchmarkBase:
         if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model at {self._model_name} in {self.get_model_path()}.")
 
-        self._container_runtime = None
-        if not self._in_container:
+        if not self._in_container and not self._is_external_server:
             self._container_runtime = "docker" if self._is_docker_available() else "podman"
+
+    def set_external_server(self, host: str, port: int):
+        """Configure to use an external server."""
+        self._is_external_server = True
+        self._vllm_host = host
+        self._vllm_port = port
+        # self._in_container = True # Treat as in_container to bypass docker commands
+        self._is_no_warmup = True # No warmup for external server
 
     def _system_config(self, gpu_devices: Union[str, None], num_gpus: Union[int, None]):
         """Required benchmark system configurations."""
-        if gpu_devices is None and num_gpus is None:
+        # GPU configuration is not needed for external server
+        if gpu_devices is None and num_gpus is None and not hasattr(self, '_is_external_server'):
             raise AssertionError("GPU devices or number of GPUs must be specified.")
         if gpu_devices is not None and num_gpus is not None:
             raise ValueError("Only one of 'gpu_devices' or 'num_gpus' can be specified.")
@@ -131,7 +148,11 @@ class BenchmarkBase:
                 raise ValueError("num_gpus must be a positive integer.")
             self._gpu_devices = ",".join(map(str, range(self._num_gpus)))
 
-        self._vllm_port = BENCHMARK_BASE_PORT + lead_gpu
+        if not hasattr(self, '_vllm_port') or self._vllm_port == 0:
+            self._vllm_port = BENCHMARK_BASE_PORT + lead_gpu
+
+        if not hasattr(self, '_num_gpus'):
+            self._num_gpus = 0 # for external server
 
     def _is_docker_available(self) -> bool:
         """Check if Docker is installed on the system."""
@@ -239,12 +260,19 @@ class BenchmarkBase:
     @property
     def gpu_devices(self) -> str:
         """Returns the GPU devices string."""
-        return self._gpu_devices
+        if hasattr(self, '_gpu_devices'):
+            return self._gpu_devices
+        return ""
 
     @property
     def num_gpus(self) -> int:
         """Returns the number of GPUs."""
         return self._num_gpus
+
+    @property
+    def external_server(self) -> bool:
+        """Returns True if using an external server."""
+        return self._is_external_server
 
 
 class VLLMServer(BenchmarkBase):
@@ -255,12 +283,17 @@ class VLLMServer(BenchmarkBase):
                 no_warmup: bool = False,
                 **kwargs):
         super().__init__(**kwargs)
+
+        if not self._in_container and not vllm_image:
+            raise ValueError("--vllm-image is required when not running with --in-container flag.")
+
         self._vllm_image = vllm_image
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._is_no_warmup = no_warmup
 
-        self._image_tag = self._vllm_image.split(':')[-1]
-        self.server_process = None
+        self._image_tag = self._vllm_image.split(':')[-1] if self._vllm_image else "local"
+
+        self.server_process: Optional[subprocess.Popen] = None
         self.temp_compile_config_file = None
         self._log_process: Optional[subprocess.Popen] = None
 
@@ -274,7 +307,10 @@ class VLLMServer(BenchmarkBase):
         self._container_name = ""
         if slurm_job_id:
             self._container_name = f"{slurm_job_id}-"
-        self._container_name += f"{os.path.basename(self._model_name)}-{self._image_tag}-g{self._gpu_devices.replace(',', '_')}"
+        if hasattr(self, '_gpu_devices'):
+            self._container_name += f"{os.path.basename(self._model_name)}-{self._image_tag}-g{self._gpu_devices.replace(',', '_')}"
+        else:
+            self._container_name += f"{os.path.basename(self._model_name)}-{self._image_tag}"
 
     def _setup_logging_dirs(self):
         self._log_dir = Path("logs") / self._model_name / self._image_tag
@@ -321,7 +357,7 @@ class VLLMServer(BenchmarkBase):
         """Build server run command with container execution"""
         group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
         cmd = [
-            self._container_runtime, "run", "-d",
+            self.container_runtime, "run", "-d",
             "--name", self.container_name,
             "-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface",
             "--device", "/dev/kfd", "--device", "/dev/dri", "--device", "/dev/mem",
@@ -351,7 +387,7 @@ class VLLMServer(BenchmarkBase):
             "vllm", "serve",
             self.get_model_path(),
             "--host", "0.0.0.0",
-            "--no-enable-log-requests",
+            "--port", str(self.vllm_port),
             "--trust-remote-code",
             "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
             "--port", str(self._vllm_port),
@@ -366,11 +402,10 @@ class VLLMServer(BenchmarkBase):
         cmd = [
             "vllm", "serve",
             str(self._model_path),
-            "--host", "0.0.0.0",
-            "--no-enable-log-requests",
+            "--host", self._vllm_host,
+            "--port", str(self.vllm_port),
             "--trust-remote-code",
-            "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
-            "--port", str(self._vllm_port),
+            "--tensor-parallel-size", str(self._parallel_size.get('tp', '1'))
         ]
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
@@ -389,6 +424,9 @@ class VLLMServer(BenchmarkBase):
 
     def start(self):
         """Start vLLM server."""
+        if self._is_external_server:
+            logger.info("Using external server at http://%s:%d. Skipping server startup.", self._vllm_host, self._vllm_port)
+            return
         no_enable_prefix_caching = self._load_test_plan()
 
         if self._in_container:
@@ -421,7 +459,7 @@ class VLLMServer(BenchmarkBase):
             return
         with open(self.server_log, 'a', encoding='utf-8') as f:
             self._log_process = subprocess.Popen(
-                [self._container_runtime, "logs", "-f", self._container_name],
+                [self.container_runtime, "logs", "-f", self._container_name],
                 stdout=f,
                 stderr=f
             )
@@ -468,7 +506,7 @@ class VLLMServer(BenchmarkBase):
         last_log_time = start_time
         while True:
             try:
-                response = requests.get(f"http://localhost:{self._vllm_port}/v1/models", timeout=10)
+                response = requests.get(f"http://{self._vllm_host}:{self.vllm_port}/v1/models", timeout=10)
                 if response.status_code == 200 and response.json():
                     return True
             except requests.exceptions.RequestException:
@@ -489,7 +527,7 @@ class VLLMServer(BenchmarkBase):
             time.sleep(5)
 
     def _warmup_server(self):
-        if self._is_dry_run or self._is_no_warmup:
+        if self._is_dry_run or self._is_no_warmup or self._is_external_server:
             logger.info("Skipping warmup.")
             return
 
@@ -498,7 +536,7 @@ class VLLMServer(BenchmarkBase):
         if not self._in_container:
             warmup_cmd.extend([self._container_runtime, "exec", self._container_name])
         warmup_cmd.extend([
-            "vllm", "bench", "serve", "--model", self.get_model_path(),
+            "python3", "-m", "vllm.bench.bin.bench_serve", "--model", self.get_model_path(),
             "--backend", "vllm", "--host", "localhost", f"--port={self.vllm_port}",
             "--dataset-name", "random", "--ignore-eos", "--trust-remote-code",
             "--request-rate=10", "--max-concurrency=1", "--num-prompts=4",
@@ -511,6 +549,9 @@ class VLLMServer(BenchmarkBase):
 
     def cleanup(self):
         """Cleanup resources."""
+        if self._is_external_server:
+            return
+
         if self._in_container:
             self.cleanup_server_process()
         else:
@@ -540,7 +581,7 @@ class VLLMServer(BenchmarkBase):
             logger.error("Container runtime or name not defined.")
             return
         try:
-            subprocess.run([self._container_runtime, "rm", "-f", self._container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            subprocess.run([self.container_runtime, "rm", "-f", self._container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         except subprocess.CalledProcessError as e:
             logger.warning("Failed to remove container %s: %s", self._container_name, e)
 
@@ -601,6 +642,11 @@ class VLLMServer(BenchmarkBase):
     def vllm_port(self) -> int:
         """Returns the vLLM server port."""
         return self._vllm_port
+
+    @property
+    def vllm_host(self) -> str:
+        """Returns the vLLM server host."""
+        return self._vllm_host
 
     @property
     def exp_tag(self) -> str:
@@ -740,7 +786,7 @@ class BenchmarkRunner:
         return test_args, test_plans
 
     def run(self):
-        if self.server.num_gpus == 0:
+        if not self.server.external_server and self.server.num_gpus == 0:
             raise ValueError("No GPU is allocated")
 
         test_args, test_plans = self._load_test_plan()
@@ -782,19 +828,33 @@ class BenchmarkRunner:
     def run_single_benchmark(self, test_args: Dict[str, Any], request_rate: int, concurrency: int, input_length: int,
                              output_length: int, num_prompts: int, batch_size: int, dataset_name: str):
         """Run a benchmark."""
-        cmd = []
-        if not self.server.in_container:
-            cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
-        cmd.extend([
-            "vllm", "bench", "serve", "--model", self.server.get_model_path(),
-            "--backend", "vllm", "--host", "localhost", f"--port={self.server.vllm_port}",
+        base_cmd = [
+            "python3", "-m", "vllm.bench.bin.bench_serve", "--model", self.server.get_model_path(),
+            "--backend", "vllm", "--host", self.server.vllm_host, f"--port={self.server.vllm_port}",
             f"--dataset-name={dataset_name}", "--ignore-eos", "--trust-remote-code",
             f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
             f"--max-concurrency={concurrency}", f"--num-prompts={num_prompts}",
             f"--random-input-len={input_length}", f"--random-output-len={output_length}",
             "--tokenizer", self.server.get_model_path(), "--disable-tqdm",
             "--percentile-metrics", "ttft,tpot,itl,e2el"
-        ])
+        ]
+
+        cmd = []
+        if self.server.in_container:
+            # Running inside a container already, execute directly
+            cmd.extend(base_cmd)
+        elif self.server.external_server:
+            # Running on host, but targeting an external server. Use `docker run` for the client.
+            cmd.extend([
+                self.server.container_runtime, "run", "--rm", "--network=host",
+                "-v", f"{self.server.host_model_path}:{self.server.get_model_path()}:ro",
+                self.server.vllm_image
+            ])
+            cmd.extend(base_cmd)
+        else:
+            # Running on host and managing the server. Use `docker exec`.
+            cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
+            cmd.extend(base_cmd)
 
         if test_args:
             for key, value in test_args.items():
@@ -817,6 +877,7 @@ class BenchmarkRunner:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with open(log_file, 'w', encoding='utf-8') as f:
             f.write(f"=== Benchmark: {request_rate}, {num_prompts}, {batch_size}, {concurrency}, {input_length}, {output_length} ===\n")
+            print(" ".join(cmd))
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
 
         metrics = self._extract_metrics(log_file)
@@ -899,20 +960,38 @@ def main():
     try:
         args = get_args()
 
-        server = VLLMServer(
-            env_file=args.env_file,
-            model_config=args.model_config,
-            model_path_or_id=args.model_path_or_id,
-            model_root_dir=args.model_root_dir,
-            vllm_image=args.vllm_image,
-            gpu_devices=args.gpu_devices,
-            num_gpus=args.num_gpus,
-            arch=args.arch,
-            dry_run=args.dry_run,
-            no_warmup=args.no_warmup,
-            in_container=args.in_container,
-            test_plan=args.test_plan,
-        )
+        if args.endpoint:
+            if "//" not in args.endpoint:
+                args.endpoint = "//" + args.endpoint
+            parsed_url = urlparse(args.endpoint)
+            host = parsed_url.hostname
+            port = parsed_url.port
+            server = VLLMServer(
+                env_file=args.env_file,
+                model_config=args.model_config,
+                model_path_or_id=args.model_path_or_id,
+                model_root_dir=args.model_root_dir,
+                vllm_image=args.vllm_image,
+                dry_run=args.dry_run,
+                in_container=args.in_container,
+                test_plan=args.test_plan,
+            )
+            server.set_external_server(host, port)
+        else:
+            server = VLLMServer(
+                env_file=args.env_file,
+                model_config=args.model_config,
+                model_path_or_id=args.model_path_or_id,
+                model_root_dir=args.model_root_dir,
+                vllm_image=args.vllm_image,
+                gpu_devices=args.gpu_devices,
+                num_gpus=args.num_gpus,
+                arch=args.arch,
+                dry_run=args.dry_run,
+                no_warmup=args.no_warmup,
+                in_container=args.in_container,
+                test_plan=args.test_plan,
+            )
         server.start()
 
         runner = BenchmarkRunner(
