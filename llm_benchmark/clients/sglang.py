@@ -1,6 +1,7 @@
 import logging
 import re
 import subprocess
+import pandas as pd
 from pathlib import Path
 from typing import Any
 from typing import Dict, List
@@ -15,16 +16,11 @@ class SGLangClient(BenchmarkClientBase):
     """Client for SGLang benchmarking."""
 
     def __init__(self, server: BenchmarkBase, is_dry_run: bool = False):
-        super().__init__(server, is_dry_run)
-        self.name = "sglang"
-        self.server = server
-        self._is_dry_run = is_dry_run
-        self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
-        self.result_file = self._log_dir / "result_list.csv"
+        super().__init__("sglang", server, is_dry_run)
 
     def run_single_benchmark(self, test_args: Dict[str, Any], **kwargs):
         """Run a single benchmark test."""
-        request_rate = kwargs.get('request_rate')
+        request_rate = kwargs.get("request_rate")
         concurrency = kwargs.get("concurrency")
         input_length = kwargs.get("input_length")
         output_length = kwargs.get("output_length")
@@ -42,10 +38,11 @@ class SGLangClient(BenchmarkClientBase):
             "--host", host,
             "--port", str(port),
             "--dataset-name", dataset_name,
+            "--request-rate", str(request_rate),
+            "--max-concurrency", str(concurrency),
             "--random-input-len", str(input_length),
             "--random-output-len", str(output_length),
             "--num-prompt", str(num_prompts),
-            "--max-concurrency", str(concurrency),
         ])
 
         if test_args:
@@ -62,12 +59,14 @@ class SGLangClient(BenchmarkClientBase):
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))
             return None
 
-        # TODO: Implement _check_existing_result if needed
+        existing_results = self._check_existing_result(**kwargs)
+        if existing_results:
+            return existing_results
 
-        log_file = self._log_dir / self.server.exp_tag / f"r{request_rate}_n{num_prompts}_b{batch_size}_{input_length}_o{output_length}_c{concurrency}.log"
+        log_file = self._get_log_path(**kwargs)
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with open(log_file, 'w', encoding='utf-8') as f:
-            f.write(f"=== Benchmark: request_rate: {request_rate}, num_prompts: {num_prompts}, batch_size, {batch_size}, concurrency: {concurrency}, isl: {input_length}, osl: {output_length} ===\n")
+            f.write(f"=== Benchmark: {kwargs} ===\n")
             f.write(f"Command: {' '.join(cmd)}\n\n")
             f.flush()
 
@@ -76,19 +75,30 @@ class SGLangClient(BenchmarkClientBase):
         return self._extract_metrics(log_file)
 
     def _extract_metrics(self, log_file: Path) -> Dict[str, float]:
-        """Parses the log file to extract performance metrics."""
         metrics = {}
         patterns = {
-            'output_token_throughput': r'Output token throughput \(tok/s\):\s*([\d.]+)',
+            'test_time': r'Benchmark duration \(s\):\s*([\d.]+)',
+            'ttft_mean': r'Mean TTFT \(ms\):\s*([\d.]+)',
+            'ttft_median': r'Median TTFT \(ms\):\s*([\d.]+)',
+            'ttft_p99': r'P99 TTFT \(ms\):\s*([\d.]+)',
+            'tpot_mean': r'Mean TPOT \(ms\):\s*([\d.]+)',
+            'tpot_median': r'Median TPOT \(ms\):\s*([\d.]+)',
+            'tpot_p99': r'P99 TPOT \(ms\):\s*([\d.]+)',
+            'itl_mean': r'Mean ITL \(ms\):\s*([\d.]+)',
+            'itl_median': r'Median ITL \(ms\):\s*([\d.]+)',
+            'itl_p99': r'P99 ITL \(ms\):\s*([\d.]+)',
+            'e2el_mean': r'Mean E2EL \(ms\):\s*([\d.]+)',
+            'e2el_median': r'Median E2EL \(ms\):\s*([\d.]+)',
+            'e2el_p99': r'P99 E2EL \(ms\):\s*([\d.]+)',
             'request_throughput': r'Request throughput \(req/s\):\s*([\d.]+)',
-            'mean_latency': r'Mean latency \(s\):\s*([\d.]+)',
+            'output_token_throughput': r'Output token throughput \(tok/s\):\s*([\d.]+)',
+            'total_token_throughput': r'Total Token throughput \(tok/s\):\s*([\d.]+)'
         }
         log_content = log_file.read_text()
+
         for key, pattern in patterns.items():
             match = re.search(pattern, log_content)
             metrics[key] = float(match.group(1)) if match else 0.0
 
-        if not metrics:
-            logger.warning("Could not extract any metrics from the sglang log file: %s", log_file)
-
         return metrics
+

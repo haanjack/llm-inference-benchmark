@@ -1,9 +1,28 @@
 from abc import ABC, abstractmethod
+import logging
 from typing import Dict, Any, List
 from pathlib import Path
+import pandas as pd
+import re
+import os
+
+from llm_benchmark.server import BenchmarkBase
+
+logger = logging.getLogger(__name__)
 
 class BenchmarkClientBase(ABC):
     """Abstract base class for benchmark clients."""
+
+    def __init__(self,
+                 name: str,
+                 server: BenchmarkBase,
+                 is_dry_run: bool = False):
+        self.name = name
+        self.server = server
+        self._is_dry_run = is_dry_run
+
+        self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
+        self._result_file = self._log_dir / "result_list.csv"
 
     @abstractmethod
     def run_single_benchmark(self, test_args: Dict[str, Any], **kwargs):
@@ -14,3 +33,39 @@ class BenchmarkClientBase(ABC):
     def _extract_metrics(self, log_file: Path) -> Dict[str, float]:
         """Extract metrics from the log file."""
         pass
+
+    def _get_log_path(self, **kwargs) -> Path:
+        """Constructs the log file path from benchmark parameters."""
+        request_rate = kwargs.get("request_rate")
+        num_prompts = kwargs.get("num_prompts")
+        batch_size = kwargs.get("batch_size")
+        input_length = kwargs.get("input_length")
+        output_length = kwargs.get("output_length")
+        concurrency = kwargs.get("concurrency")
+        return self._log_dir / self.server.exp_tag / f"r{request_rate}_n{num_prompts}_b{batch_size}_{input_length}_o{output_length}_c{concurrency}.log"
+
+    def _check_existing_result(self, **kwargs) -> Dict[str, float] | None:
+        """Check if a benchmark result already exists."""
+        log_file = self._get_log_path(**kwargs)
+        if not log_file.exists():
+            return None
+
+        if not self._result_file.exists():
+            return None
+
+        try:
+            df = pd.read_csv(self._result_file)
+            # Create a filter condition for all kwargs
+            condition = pd.Series([True] * len(df))
+            for key, value in kwargs.items():
+                if key in df.columns:
+                    condition &= (df[key].astype(type(value) if value is not None else str) == value)
+
+            if condition.any():
+                logger.info("Found existing results in %s", self._result_file)
+                return self._extract_metrics(log_file)
+        except (pd.errors.EmptyDataError, KeyError) as e:
+            logger.warning("Could not read or parse existing result file %s: %s", self._result_file, e)
+            return None
+
+        return None
