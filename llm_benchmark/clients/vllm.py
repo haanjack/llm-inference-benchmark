@@ -15,6 +15,8 @@ class VLLMClient(BenchmarkClientBase):
 
     def __init__(self, server: VLLMServer, is_dry_run: bool = False):
         self.server = server
+        self.name = "vllm"
+
         self._is_dry_run = is_dry_run
         self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
         self.result_file = self._log_dir / "result_list.csv"

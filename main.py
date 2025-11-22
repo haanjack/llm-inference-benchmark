@@ -4,12 +4,9 @@ import argparse
 import logging
 import sys
 
-from llm_benchmark.server.vllm import VLLMServer
-from llm_benchmark.server.sglang import SGLangServer
-from llm_benchmark.server.remote import RemoteServer
+from llm_benchmark.server import VLLMServer, SGLangServer, RemoteServer
+from llm_benchmark.clients import VLLMClient, SGLangClient, GenAIPerfClient
 from llm_benchmark.runner import BenchmarkRunner
-from llm_benchmark.clients.vllm import VLLMClient
-from llm_benchmark.clients.genai_perf import GenAIPerfClient
 
 # Configure logging
 logging.basicConfig(
@@ -48,7 +45,7 @@ def get_args():
     parser.add_argument('--arch', default=None,
                         help='Target GPU architecture for model config')
     parser.add_argument('--benchmark-client', default='vllm',
-                        choices=['vllm', 'genai-perf'],
+                        choices=['vllm', 'genai-perf', 'sglang'],
                         help='Benchmark client to use')
     parser.add_argument('--endpoint', default=None,
                         help='Specify a remote endpoint URL to benchmark against. '
@@ -123,6 +120,8 @@ def main():
             client = VLLMClient(server=server, is_dry_run=args.server_test or args.dry_run)
         elif args.benchmark_client == 'genai-perf':
             client = GenAIPerfClient(server=server, is_dry_run=args.server_test or args.dry_run)
+        elif args.benchmark_client == 'sglang':
+            client = SGLangClient(server=server, is_dry_run=args.server_test or args.dry_run)
         else:
             raise ValueError(f"Unknown benchmark client: {args.benchmark_client}")
 

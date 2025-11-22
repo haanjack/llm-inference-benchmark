@@ -18,6 +18,8 @@ class GenAIPerfClient(BenchmarkClientBase):
 
     def __init__(self, server: BenchmarkBase, is_dry_run: bool = False):
         self.server = server
+        self.name = "genai-perf"
+
         self._is_dry_run = is_dry_run
         self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
         self.result_file = self._log_dir / "result_list.csv"
