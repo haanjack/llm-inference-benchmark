@@ -12,6 +12,7 @@ import yaml
 import dotenv
 
 from llm_benchmark.server.base import BenchmarkBase
+from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -78,14 +79,14 @@ class VLLMServer(BenchmarkBase):
             "-v", f"{self._aiter_cache_dir}:/root/.aiter",
             "-v", f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
             "-w", f"{os.environ.get('HOME')}",
-            self.image,
+            "$IMAGE",
             "vllm", "serve",
-            self.get_model_path(),
+            "$MODEL_PATH",
             "--host", "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
-            "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
-            "--port", str(self._port),
+            "--tensor-parallel-size", "$TP_SIZE",
+            "--port", "$PORT",
         ])
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
@@ -252,3 +253,11 @@ class VLLMServer(BenchmarkBase):
     def exp_tag(self) -> str:
         """Returns the experiment tag."""
         return self._exp_tag
+
+    def generate_script(self, generator: ScriptGenerator):
+        """Generates the vLLM server start command for the script."""
+        super().generate_script(generator)
+        no_enable_prefix_caching = self._load_test_plan()
+        server_cmd = self.get_server_run_cmd(no_enable_prefix_caching)
+        generator.set_server_command(server_cmd)
+        generator.set_wait_command(self.port)

@@ -7,14 +7,15 @@ from typing import Dict, Any, List
 
 from llm_benchmark.clients.base import BenchmarkClientBase
 from llm_benchmark.server.vllm import VLLMServer
+from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
 class VLLMClient(BenchmarkClientBase):
     """vLLM benchmark client."""
 
-    def __init__(self, server: VLLMServer, is_dry_run: bool = False):
-        super().__init__("vllm", server, is_dry_run)
+    def __init__(self, server: VLLMServer, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
+        super().__init__("vllm", server, is_dry_run, script_generator)
 
     def run_single_benchmark(self, test_args: Dict[str, Any], **kwargs):
         """Run a single benchmark test."""
@@ -31,24 +32,34 @@ class VLLMClient(BenchmarkClientBase):
                                 'rndom-rerank', 'hf', 'custom', 'prefix_repetition', 'spec_bench'], \
                                 f"Dataset {dataset_name} is not supported by vLLM benchmark."
 
+        use_script_vars = self.script_generator is not None
+
+        # Use shell variables for script generation, otherwise use actual values.
+        concurrency_val = f"${{CONCURRENCY}}" if use_script_vars else str(concurrency)
+        num_prompts_val = f"${{NUM_PROMPTS}}" if use_script_vars else str(num_prompts)
+        input_length_val = f"${{INPUT_LENGTH}}" if use_script_vars else str(input_length)
+        output_length_val = f"${{OUTPUT_LENGTH}}" if use_script_vars else str(output_length)
+        model_path_val = "$MODEL_PATH" if use_script_vars else self.server.get_model_path()
+        request_rate_val = f"${{REQUEST_RATE}}" if use_script_vars else (str(request_rate) if request_rate > 0 else 'inf')
+
         cmd = []
         if not self.server.in_container:
             cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         cmd.extend([
             "vllm", "bench", "serve",
-            "--model", self.server.get_model_path(),
+            "--model", model_path_val,
             "--backend", "vllm", "--host", "localhost", "--port", str(self.server.port),
             "--dataset-name", dataset_name,
             "--ignore-eos",
             "--trust-remote-code",
-            f"--request-rate={request_rate if request_rate > 0 else 'inf'}",
-            f"--max-concurrency={concurrency}",
-            f"--num-prompts={num_prompts}",
-            f"--random-input-len={input_length}",
-            f"--random-output-len={output_length}",
-            "--tokenizer", self.server.get_model_path(),
+            "--request-rate", request_rate_val,
+            "--max-concurrency", concurrency_val,
+            "--num-prompts", num_prompts_val,
+            "--random-input-len", input_length_val,
+            "--random-output-len", output_length_val,
+            "--tokenizer", model_path_val,
             "--disable-tqdm",
-            "--percentile-metrics", "ttft,tpot,itl,e2el"
+            "--percentile-metrics", "ttft,tpot,itl,e2el",
         ])
 
         if test_args:
@@ -63,6 +74,13 @@ class VLLMClient(BenchmarkClientBase):
 
                 if key == 'dataset_path':
                     cmd.extend(['--dataset-path', value])
+
+        if self.script_generator:
+            # In script generation mode, we only need to process one command template.
+            # The script_generator will handle the loop.
+            formatted_cmd = self.script_generator._format_command(cmd)
+            self.script_generator.script_parts["client_cmds"].append("    " + " \\\n        ".join(formatted_cmd))
+            return None # Don't return the command itself
 
         if self._is_dry_run:
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))

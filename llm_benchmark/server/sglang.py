@@ -14,6 +14,7 @@ import random
 import string
 
 from llm_benchmark.server.base import BenchmarkBase
+from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -202,3 +203,11 @@ class SGLangServer(BenchmarkBase):
     def exp_tag(self) -> str:
         """Returns the experiment tag."""
         return self._exp_tag
+
+    def generate_script(self, generator: ScriptGenerator):
+        """Generates the SGLang server start command for the script."""
+        super().generate_script(generator)
+        disable_radix_cache = self._load_test_plan()
+        server_cmd = self.get_server_run_cmd(disable_radix_cache)
+        generator.set_server_command(server_cmd)
+        generator.set_wait_command(self.port)

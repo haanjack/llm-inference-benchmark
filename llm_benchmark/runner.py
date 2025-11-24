@@ -8,6 +8,7 @@ import yaml
 
 from llm_benchmark.server.base import BenchmarkBase
 from llm_benchmark.clients.base import BenchmarkClientBase
+from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +19,14 @@ class BenchmarkRunner:
                 client: BenchmarkClientBase,
                 test_plan: str,
                 sub_tasks: List[str] = None,
-                is_dry_run: bool = False):
+                is_dry_run: bool = False,
+                script_generator: ScriptGenerator = None):
         self.server = server
         self.client = client
         self._test_plan = test_plan
         self._sub_tasks = sub_tasks
         self._is_dry_run = server.is_dry_run or is_dry_run
+        self.script_generator = script_generator
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._columns = [
             ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11),
@@ -77,7 +80,7 @@ class BenchmarkRunner:
         except Exception as e:
             logger.warning("Could not read test plan file '%s': %s", self._test_plan_path, e)
 
-    def _load_test_plan(self):
+    def _load_test_plan(self, for_script_gen: bool = False):
         with open(self._test_plan_path, mode="r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         dataset_name = config.get('dataset_name', 'random')
@@ -110,6 +113,7 @@ class BenchmarkRunner:
 
         # benchmark sweep
         test_plans = []
+        scenario_params_for_script_gen = []
         for scenario in config.get('test_scenarios', []):
             if self._sub_tasks and scenario.get('name') not in self._sub_tasks:
                 continue
@@ -119,6 +123,7 @@ class BenchmarkRunner:
             if 'num_iteration' in scenario and 'num_prompts' in scenario:
                 raise AssertionError("num_iteration and num_prompts are exclusive.")
 
+            # These are the parameters we want to create loops for in the script
             params = {
                 'request_rates': ensure_list(scenario.get('request_rate'), [0]),
                 'concurrencies': ensure_list(scenario.get('concurrency'), [1]),
@@ -128,9 +133,14 @@ class BenchmarkRunner:
                 'num_prompts': ensure_list(scenario.get('num_prompts'), [1000 if 'num_iteration' not in scenario else 1]),
                 'batch_sizes': ensure_list(scenario.get('batch_size'), [256])
             }
+            if for_script_gen:
+                scenario_params_for_script_gen.append(params)
+                continue
+
             dataset_name_ = scenario.get('dataset_name', dataset_name)
+
             if dataset_name == 'random' and dataset_name_ != 'random':
-                logger.warning('Benchmark with non-random dataset with no-enable-prefix-caching.')
+                logger.warning('Benchmark with non-random dataset might have issues with prefix-caching settings.')
 
             for rate, batch, num_iter, num_prompts_val, in_len, out_len, conc in itertools.product(
                     params['request_rates'], params['batch_sizes'], params['num_iterations'],
@@ -142,6 +152,9 @@ class BenchmarkRunner:
                     'output_length': out_len, 'num_prompts': num_prompts_final,
                     'batch_size': batch, 'dataset_name': dataset_name_
                 })
+        if for_script_gen:
+            return test_args, scenario_params_for_script_gen
+
         if not test_plans:
             raise ValueError("No test scenarios loaded.")
 
@@ -150,12 +163,54 @@ class BenchmarkRunner:
     def run(self):
         test_args, test_plans = self._load_test_plan()
 
+        if self.script_generator:
+            self.server.generate_script(self.script_generator)
+
+            # Re-create loop parameters for nested loop generation
+            _, scenario_params = self._load_test_plan(for_script_gen=True)
+            loop_params = {}
+            param_keys = [
+                'request_rates', 'concurrencies', 'input_lengths', 'output_lengths',
+                'num_prompts', 'batch_sizes', 'dataset_name'
+            ]
+            # Initialize loop_params with empty lists
+            for key in param_keys:
+                loop_params[key] = []
+
+            if scenario_params:
+                # This assumes test_plans are generated in the same order
+                for plan in test_plans:
+                    loop_params['request_rates'].append(plan['request_rate'])
+                    loop_params['concurrencies'].append(plan['concurrency'])
+                    loop_params['input_lengths'].append(plan['input_length'])
+                    loop_params['output_lengths'].append(plan['output_length'])
+                    loop_params['num_prompts'].append(plan['num_prompts'])
+                    loop_params['batch_sizes'].append(plan['batch_size'])
+                    loop_params['dataset_name'].append(plan['dataset_name'])
+            # Use the first test plan to generate a template client command.
+            # The client will now return the command list instead of None.
+            command_template = None
+            if test_plans:
+                command_template = self.client.run_single_benchmark(test_args, **test_plans[0])
+
+            if command_template:
+                self.script_generator.set_client_loop(loop_params, command_template)
+
+            self.script_generator.generate()
+            logger.info("Script generation complete. Exiting.")
+            return
+
         try:
             self._print_header()
             self._run_benchmark(test_args, test_plans)
         finally:
             self.server.cleanup()
             if not self._is_dry_run and not self.server.in_container:
+                if self.script_generator:
+                    self.script_generator.generate()
+                    logger.info("Script generation complete.")
+                    return
+
                 logger.info("Benchmarking complete. Results saved to %s", self.result_file)
 
     def _print_header(self):
@@ -165,7 +220,7 @@ class BenchmarkRunner:
 
         header_line1 = []
         header_line2 = []
-        for header, width in self._columns:
+        for header, width in self._columns: # pyright: ignore
             parts = header.split(' ', 1)
             header_line1.append(parts[0].rjust(width))
             header_line2.append(parts[1].rjust(width) if len(parts) > 1 else ' '.rjust(width))
@@ -190,7 +245,7 @@ class BenchmarkRunner:
                     return
 
     def _save_results(self, metrics: Dict[str, float], **kwargs):
-        result_line = (
+        result_line = ( # pyright: ignore
             f"{Path(self.server.model_config).stem},{self.server.parallel_size.get('tp', '1')},"
             f"{kwargs.get('request_rate')},{kwargs.get('num_prompts')},{kwargs.get('batch_size')},{kwargs.get('concurrency')},{kwargs.get('input_length')},{kwargs.get('output_length')},{metrics['test_time']:.2f},"
             f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
@@ -203,14 +258,14 @@ class BenchmarkRunner:
             f.write(result_line)
 
     def _format_result_for_console(self, values: List[str]) -> str:
-        if len(values) != len(self._columns):
+        if len(values) != len(self._columns): # pyright: ignore
             logger.warning("Mismatch between result values and column definitions.")
             return ' '.join(values)
-        formatted_values = [os.path.basename(values[0]).ljust(self._columns[0][1])]
-        formatted_values.extend(val.rjust(width) for val, (_, width) in zip(values[1:], self._columns[1:]))
+        formatted_values = [os.path.basename(values[0]).ljust(self._columns[0][1])] # pyright: ignore
+        formatted_values.extend(val.rjust(width) for val, (_, width) in zip(values[1:], self._columns[1:])) # pyright: ignore
         return ' '.join(formatted_values)
 
-    def _print_result(self, metrics: Dict[str, float], **kwargs):
+    def _print_result(self, metrics: Dict[str, float], **kwargs): # pyright: ignore
         values = [
             Path(self.server.model_config).stem, str(self.server.parallel_size.get('tp', '1')),
             str(kwargs.get('request_rate')), str(kwargs.get('num_prompts')), str(kwargs.get('batch_size')), str(kwargs.get('concurrency')), str(kwargs.get('input_length')), str(kwargs.get('output_length')), f"{metrics['test_time']:.2f}",

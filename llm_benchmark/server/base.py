@@ -4,6 +4,7 @@ import subprocess
 import time
 import sys
 from pathlib import Path
+from llm_benchmark.utils.script_generator import ScriptGenerator
 from typing import Dict, List, Optional, Union, Any
 import yaml
 import requests
@@ -58,6 +59,11 @@ class BenchmarkBase:
             self._load_model_config()
 
         # Initialize container runtime
+        if endpoint is None:
+            self._gpu_devices, self._num_gpus, self._port = self._get_system_config(gpu_devices, num_gpus)
+            self._parallel_size = {'tp': str(self.num_gpus)}
+            self._load_model_config()
+
         self._container_runtime = None
         if not self.in_container:
             self._container_runtime = "docker" if self._is_docker_available() else "podman"
@@ -137,8 +143,8 @@ class BenchmarkBase:
         if os.environ.get('HF_HOME'):
             cmd.extend(["-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface"])
 
-        for key, value in self._env_vars.items():
-            cmd.extend(["-e", f"{key}={value}"])
+        for key in self._env_vars:
+            cmd.extend(["-e", key])
 
         return cmd
 
@@ -362,3 +368,18 @@ class BenchmarkBase:
     def endpoint(self) -> str:
         """returns server endpoint"""
         return f"http://0.0.0.0:{self.port}"
+
+    def generate_script(self, generator: ScriptGenerator):
+        """Generates the server-side portion of the benchmark script."""
+        generator.add_variable("MODEL_NAME", self.model_name)
+        generator.add_variable("MODEL_PATH", self.get_model_path())
+        generator.add_variable("IMAGE", self.image)
+        if hasattr(self, '_parallel_size'):
+            generator.add_variable("TP_SIZE", self.parallel_size.get("tp", 1))
+        generator.add_variable("PORT", self.port)
+
+        for key, value in self._env_vars.items():
+            generator.add_env_variable(key, value)
+
+        # This method should be overridden by subclasses to add specific commands
+        logger.warning("generate_script() not fully implemented for %s", self.__class__.__name__)

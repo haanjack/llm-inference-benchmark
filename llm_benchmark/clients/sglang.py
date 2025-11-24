@@ -8,6 +8,7 @@ from typing import Dict, List
 
 from llm_benchmark.clients.base import BenchmarkClientBase
 from llm_benchmark.server.base import BenchmarkBase
+from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,8 @@ logger = logging.getLogger(__name__)
 class SGLangClient(BenchmarkClientBase):
     """Client for SGLang benchmarking."""
 
-    def __init__(self, server: BenchmarkBase, is_dry_run: bool = False):
-        super().__init__("sglang", server, is_dry_run)
+    def __init__(self, server: BenchmarkBase, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
+        super().__init__("sglang", server, is_dry_run, script_generator)
 
     def run_single_benchmark(self, test_args: Dict[str, Any], **kwargs):
         """Run a single benchmark test."""
@@ -30,6 +31,16 @@ class SGLangClient(BenchmarkClientBase):
 
         host, port = self.server.endpoint.split(":")
 
+        use_script_vars = self.script_generator is not None
+
+        # Use shell variables for script generation, otherwise use actual values.
+        concurrency_val = f"${{CONCURRENCY}}" if use_script_vars else str(concurrency)
+        num_prompts_val = f"${{NUM_PROMPTS}}" if use_script_vars else str(num_prompts)
+        input_length_val = f"${{INPUT_LENGTH}}" if use_script_vars else str(input_length)
+        output_length_val = f"${{OUTPUT_LENGTH}}" if use_script_vars else str(output_length)
+        model_path_val = "$MODEL_PATH" if use_script_vars else self.server.get_model_path()
+        request_rate_val = f"${{REQUEST_RATE}}" if use_script_vars else (str(request_rate) if request_rate > 0 else 'inf')
+
         cmd = []
         if not self.server.in_container:
             cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
@@ -37,12 +48,13 @@ class SGLangClient(BenchmarkClientBase):
             "python3", "-m", "sglang.bench_serving",
             "--host", host,
             "--port", str(port),
+            "--tokenizer", model_path_val,
             "--dataset-name", dataset_name,
-            "--request-rate", str(request_rate),
-            "--max-concurrency", str(concurrency),
-            "--random-input-len", str(input_length),
-            "--random-output-len", str(output_length),
-            "--num-prompt", str(num_prompts),
+            "--request-rate", request_rate_val,
+            "--max-concurrency", concurrency_val,
+            "--random-input-len", input_length_val,
+            "--random-output-len", output_length_val,
+            "--num-prompt", num_prompts_val,
         ])
 
         if test_args:
@@ -54,6 +66,11 @@ class SGLangClient(BenchmarkClientBase):
                         cmd.append(f"--{key.replace('_', '-')}")
                 else:
                     cmd.extend([f"--{key.replace('_', '-')}", str(value)])
+
+        if self.script_generator:
+            # In script generation mode, we return the command template.
+            # The runner will handle the rest.
+            return cmd
 
         if self._is_dry_run:
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))
@@ -101,4 +118,3 @@ class SGLangClient(BenchmarkClientBase):
             metrics[key] = float(match.group(1)) if match else 0.0
 
         return metrics
-

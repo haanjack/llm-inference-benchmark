@@ -3,10 +3,12 @@
 import argparse
 import logging
 import sys
+from pathlib import Path
 
 from llm_benchmark.server import VLLMServer, SGLangServer, RemoteServer
 from llm_benchmark.clients import VLLMClient, SGLangClient, GenAIPerfClient
 from llm_benchmark.runner import BenchmarkRunner
+from llm_benchmark.utils.script_generator import ScriptGenerator
 
 # Configure logging
 logging.basicConfig(
@@ -60,6 +62,8 @@ def get_args():
                         help='Run benchmark directly without launching a new container')
     parser.add_argument('--server-test', action='store_true',
                         help='Initialize server only, and show benchmark commands for test')
+    parser.add_argument('--generate-script', action='store_true',
+                        help='Generate a bash script for the benchmark run.')
 
     args = parser.parse_args()
 
@@ -76,6 +80,12 @@ def main():
     """Main function to run the benchmark."""
     try:
         args = get_args()
+
+        script_generator = None
+        if args.generate_script:
+            args.dry_run = True  # --generate-script implies --dry-run
+            script_path = Path(f"run_benchmark_{args.backend}_{args.model_config}").with_suffix(".sh")
+            script_generator = ScriptGenerator(output_path=script_path)
 
         if args.endpoint:
             server_kwargs = {"endpoint": args.endpoint}
@@ -117,11 +127,11 @@ def main():
             server.start()
 
         if args.benchmark_client == 'vllm':
-            client = VLLMClient(server=server, is_dry_run=args.server_test or args.dry_run)
+            client = VLLMClient(server=server, is_dry_run=args.server_test or args.dry_run, script_generator=script_generator)
         elif args.benchmark_client == 'genai-perf':
-            client = GenAIPerfClient(server=server, is_dry_run=args.server_test or args.dry_run)
+            client = GenAIPerfClient(server=server, is_dry_run=args.server_test or args.dry_run, script_generator=script_generator)
         elif args.benchmark_client == 'sglang':
-            client = SGLangClient(server=server, is_dry_run=args.server_test or args.dry_run)
+            client = SGLangClient(server=server, is_dry_run=args.server_test or args.dry_run, script_generator=script_generator)
         else:
             raise ValueError(f"Unknown benchmark client: {args.benchmark_client}")
 
@@ -131,6 +141,7 @@ def main():
             test_plan=args.test_plan,
             sub_tasks=args.sub_tasks,
             is_dry_run=args.server_test,
+            script_generator=script_generator,
         )
 
         runner.run()

@@ -7,6 +7,7 @@ import re
 import os
 
 from llm_benchmark.server import BenchmarkBase
+from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +17,12 @@ class BenchmarkClientBase(ABC):
     def __init__(self,
                  name: str,
                  server: BenchmarkBase,
-                 is_dry_run: bool = False):
+                 is_dry_run: bool = False,
+                 script_generator: ScriptGenerator = None):
         self.name = name
         self.server = server
         self._is_dry_run = is_dry_run
+        self.script_generator = script_generator
 
         self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
         self._result_file = self._log_dir / "result_list.csv"
