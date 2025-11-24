@@ -49,14 +49,20 @@ class SGLangServer(BenchmarkBase):
         """Build server run command with container execution"""
         cmd = self._get_docker_run_common_command()
 
+        use_script_vars = self.script_generator is not None
+        image_val = "$IMAGE" if use_script_vars else self.image
+        model_path_val = "$MODEL_PATH" if use_script_vars else self.get_model_path()
+        tp_size_val = "$TP_SIZE" if use_script_vars else str(self._parallel_size.get('tp', '1'))
+        port_val = "$PORT" if use_script_vars else str(self._port)
+
         cmd.extend([
             "-v", f"{self._host_cache_dir}:/root/.cache",
-            self.image,
+            image_val,
             "python", "-m", "sglang.launch_server",
-            "--model-path", self.get_model_path(),
+            "--model-path", model_path_val,
             "--host", "0.0.0.0",
-            "--port", str(self._port),
-            "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
+            "--port", port_val,
+            "--tensor-parallel-size", tp_size_val,
         ])
         if disable_radix_cache:
             cmd.append("--disable-radix-cache")
@@ -65,12 +71,18 @@ class SGLangServer(BenchmarkBase):
 
     def get_server_run_cmd_direct(self, disable_radix_cache: bool) -> List[str]:
         """Build server run command"""
+
+        use_script_vars = self.script_generator is not None
+        model_path_val = "$MODEL_PATH" if use_script_vars else self.get_model_path()
+        tp_size_val = "$TP_SIZE" if use_script_vars else str(self._parallel_size.get('tp', '1'))
+        port_val = "$PORT" if use_script_vars else str(self._port)
+
         cmd = [
             "python", "-m", "sglang.launch_server",
-            "--model-path", str(self._model_path),
+            "--model-path", model_path_val,
             "--host", "0.0.0.0",
-            "--port", str(self._port),
-            "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
+            "--tensor-parallel-size", tp_size_val,
+            "--port", port_val,
         ]
         if disable_radix_cache:
             cmd.append("--disable-radix-cache")
@@ -124,8 +136,13 @@ class SGLangServer(BenchmarkBase):
     def _start_server_direct(self, disable_radix_cache: bool):
         cmd = self.get_server_run_cmd_direct(disable_radix_cache)
         if self._is_dry_run:
+            cmd_str = " ".join(cmd)
+            cmd_str = cmd_str.replace("$MODEL_PATH", str(self._model_path))
+            cmd_str = cmd_str.replace("$TP_SIZE", str(self._parallel_size.get('tp', '1')))
+            cmd_str = cmd_str.replace("$PORT", str(self._port))
+
             logger.info("Dry run - Direct server command:")
-            logger.info(" ".join(cmd))
+            logger.info(cmd_str)
             return
 
         logger.info("Starting SGLang server as a direct process...")

@@ -9,6 +9,7 @@ from llm_benchmark.server import VLLMServer, SGLangServer, RemoteServer
 from llm_benchmark.clients import VLLMClient, SGLangClient, GenAIPerfClient
 from llm_benchmark.runner import BenchmarkRunner
 from llm_benchmark.utils.script_generator import ScriptGenerator
+from llm_benchmark.utils.utils import parse_env_file
 
 # Configure logging
 logging.basicConfig(
@@ -87,12 +88,13 @@ def main():
             script_path = Path(f"run_benchmark_{args.backend}_{args.model_config}").with_suffix(".sh")
             script_generator = ScriptGenerator(output_path=script_path)
 
+        envs = parse_env_file(args.env_file) if args.env_file else {}
+
         if args.endpoint:
             server_kwargs = {"endpoint": args.endpoint}
         else:
             server_kwargs = {
                 "image": args.image,
-                "env_file": args.env_file,
                 "model_config": args.model_config,
                 "model_path_or_id": args.model_path_or_id,
                 "model_root_dir": args.model_root_dir,
@@ -103,6 +105,7 @@ def main():
                 "no_warmup": args.no_warmup,
                 "in_container": args.in_container,
                 "test_plan": args.test_plan,
+                "envs": envs,
             }
 
         # Common arguments for all server types

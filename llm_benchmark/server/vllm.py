@@ -72,6 +72,12 @@ class VLLMServer(BenchmarkBase):
         """Build server run command with container execution"""
         cmd = self._get_docker_run_common_command()
 
+        use_script_vars = self.script_generator is not None
+        image_val = "$IMAGE" if use_script_vars else self.image
+        model_path_val = "$MODEL_PATH" if use_script_vars else self.get_model_path()
+        tp_size_val = "$TP_SIZE" if use_script_vars else str(self._parallel_size.get('tp', '1'))
+        port_val = "$PORT" if use_script_vars else str(self._port)
+
         # set volume mounts and run server command
         cmd.extend([
             "-v", f"{self._host_cache_dir}:/root/.cache",
@@ -79,14 +85,14 @@ class VLLMServer(BenchmarkBase):
             "-v", f"{self._aiter_cache_dir}:/root/.aiter",
             "-v", f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
             "-w", f"{os.environ.get('HOME')}",
-            "$IMAGE",
+            image_val,
             "vllm", "serve",
-            "$MODEL_PATH",
+            model_path_val,
             "--host", "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
-            "--tensor-parallel-size", "$TP_SIZE",
-            "--port", "$PORT",
+            "--tensor-parallel-size", tp_size_val,
+            "--port", port_val,
         ])
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
@@ -95,14 +101,20 @@ class VLLMServer(BenchmarkBase):
 
     def get_server_run_cmd_direct(self, no_enable_prefix_caching: bool) -> List[str]:
         """Build server run command"""
+
+        use_script_vars = self.script_generator is not None
+        model_path_val = "$MODEL_PATH" if use_script_vars else self.get_model_path()
+        tp_size_val = "$TP_SIZE" if use_script_vars else str(self._parallel_size.get('tp', '1'))
+        port_val = "$PORT" if use_script_vars else str(self._port)
+
         cmd = [
             "vllm", "serve",
-            str(self._model_path),
+            model_path_val,
             "--host", "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
-            "--tensor-parallel-size", str(self._parallel_size.get('tp', '1')),
-            "--port", str(self._port),
+            "--tensor-parallel-size", tp_size_val,
+            "--port", port_val,
         ]
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")

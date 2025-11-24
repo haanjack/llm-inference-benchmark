@@ -24,7 +24,7 @@ class BenchmarkBase:
     """Base class for benchmark components."""
     def __init__(self,
                  image: str = None,
-                 env_file: str = None,
+                 envs: Dict[str, str] = None,
                  model_path_or_id: str = None,
                  model_root_dir: str = None,
                  model_config: str = None,
@@ -33,11 +33,12 @@ class BenchmarkBase:
                  arch: str = None,
                  dry_run: bool = False,
                  in_container: bool = False,
-                 endpoint: str = None):
+                 endpoint: str = None,
+                 script_generator: ScriptGenerator = None):
 
         self.image = image
         self.server_process: Optional[subprocess.Popen] = None
-        self._common_env_file = env_file
+        self._common_envs = envs
         self._env_vars = {}
         self._server_args = {}
         self._compilation_config = {}
@@ -48,6 +49,7 @@ class BenchmarkBase:
         self._log_process: Optional[subprocess.Popen] = None
         self._model_path_or_id = model_path_or_id
         self._remote_server_endpoint = endpoint if endpoint else None
+        self.script_generator = script_generator
 
         self._model_path = self._load_model_from_path_or_hub(model_path_or_id, model_root_dir)
         self._model_name = self._model_path.name
@@ -136,13 +138,14 @@ class BenchmarkBase:
             "--shm-size=16gb",
             "--security-opt", "seccomp=unconfined",
             "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
-            "--env-file", self._common_env_file,
             "-v", f"{self._model_path}:{self.get_model_path()}:ro",
         ]
 
         if os.environ.get('HF_HOME'):
             cmd.extend(["-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface"])
 
+        for key in self._common_envs:
+            cmd.extend(["-e", f"{key}={self._common_envs[key]}"])
         for key in self._env_vars:
             cmd.extend(["-e", key])
 
