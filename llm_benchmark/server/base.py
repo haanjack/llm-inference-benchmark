@@ -31,7 +31,8 @@ class BenchmarkBase:
                  num_gpus: int = None,
                  arch: str = None,
                  dry_run: bool = False,
-                 in_container: bool = False):
+                 in_container: bool = False,
+                 endpoint: str = None):
 
         self.image = image
         self.server_process: Optional[subprocess.Popen] = None
@@ -45,10 +46,16 @@ class BenchmarkBase:
         self._in_container = in_container
         self._log_process: Optional[subprocess.Popen] = None
         self._model_path_or_id = model_path_or_id
+        self._remote_server_endpoint = endpoint if endpoint else None
 
         self._model_path = self._load_model_from_path_or_hub(model_path_or_id, model_root_dir)
         self._model_name = self._model_path.name
         self._container_model_path = Path(f"/models/{self._model_name}")
+
+        if endpoint is None:
+            self._gpu_devices, self._num_gpus, self._port = self._get_system_config(gpu_devices, num_gpus)
+            self._parallel_size = {'tp': str(self.num_gpus)}
+            self._load_model_config()
 
         # Initialize container runtime
         self._container_runtime = None
@@ -56,13 +63,6 @@ class BenchmarkBase:
             self._container_runtime = "docker" if self._is_docker_available() else "podman"
             self._container_name = self._setup_container_name()
             self._setup_logging_dirs()
-
-        if self.endpoint is None:
-            self._gpu_devices, self._num_gpus, self._port = self._get_system_config(gpu_devices, num_gpus)
-            self._parallel_size = {'tp': str(self.num_gpus)}
-
-            self._load_model_config()
-
 
         if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model at {self._model_name} in {self.get_model_path()}.")
@@ -82,7 +82,7 @@ class BenchmarkBase:
         current_time = time.strftime("%Y%m%d-%H%M%S")
         self._log_dir = Path("logs") / self._model_name / self.image_tag
         self._exp_tag = f"{Path(self._model_config).stem}"
-        if not self.endpoint:
+        if not self._remote_server_endpoint:
             self._exp_tag += f"-tp{self._parallel_size.get('tp', '1')}"
             self.server_log_path = self._log_dir / self._exp_tag / "server_logs" / f"{self._parallel_size.get('tp', '1')}-{current_time}.txt"
         if not self._is_dry_run:
