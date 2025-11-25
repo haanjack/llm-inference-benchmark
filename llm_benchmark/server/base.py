@@ -52,7 +52,7 @@ class BenchmarkBase:
         self.script_generator = script_generator
 
         self._model_path = self._load_model_from_path_or_hub(model_path_or_id, model_root_dir)
-        self._model_name = self._model_path.name
+        self._model_name = f"{self._model_path.parent.name}/{self._model_path.name}"
         self._container_model_path = Path(f"/models/{self._model_name}")
 
         if endpoint is None:
@@ -334,6 +334,11 @@ class BenchmarkBase:
     def model_path_or_id(self) -> str:
         """Returns the model path or ID."""
         return self.model_path_or_id
+
+    @property
+    def exp_tag(self) -> str:
+        """Returns the experiment tag."""
+        return self._exp_tag
 
     @property
     def gpu_devices(self) -> str:

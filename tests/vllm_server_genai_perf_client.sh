@@ -7,5 +7,5 @@ python3 main.py \
     --image docker.io/rocm/vllm:latest \
     --benchmark-client genai-perf \
     --test-plan sample \
-    --gpu-devices 0
+    --gpu-devices 0 --server-test
 

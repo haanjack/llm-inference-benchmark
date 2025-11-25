@@ -33,19 +33,10 @@ class GenAIPerfClient(BenchmarkClientBase):
         batch_size = kwargs.get('batch_size')
         dataset_name = kwargs.get('dataset_name')
 
-        dataset_args = []
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            if dataset_name == "random":
-                  dataset_args.append(f'--synthetic-input-tokens-mean={input_length}')
-                  dataset_args.append(f'--extra-inputs=max_tokens:{int(input_length * random_range_ratio)}')
-                  dataset_args.append(f'--extra-inputs=min_tokens:{int(input_length * random_range_ratio)}')
-            else:
-                raise NotImplementedError(f"Dataset {dataset_name} is not yet implemented for GenAIPerfClient")
-
         log_file = self._get_log_path(**kwargs)
         log_file.parent.mkdir(parents=True, exist_ok=True)
         json_output_file_host = log_file.with_suffix('.json')
-        json_output_file_container = f"/benchmark_output/{json_output_file_host.name}"
+        json_output_file_container = json_output_file_host.name
 
         use_script_vars = self.script_generator is not None
 
@@ -60,26 +51,26 @@ class GenAIPerfClient(BenchmarkClientBase):
         cmd = [
             self.server.container_runtime, "run", "--rm",
             "--network=host",
+            "-v", f"{log_file.parent.resolve()}:/tmp/artifacts",
+            "-v", f"{self.server._model_path}:{model_path_val}",
             triton_image,
             "genai-perf", "profile",
-            "-m", self.server.model_name,
-            "--tokenizer", self.server.model_name,
-            "-i", "http",
+            "-m", model_path_val,
+            "--tokenizer", model_path_val,
+            "--endpoint-type", "chat",
+            "--url", f"http://localhost:{self.server.port}",
             "--streaming",
-            "--service-kind", "openai",
+            "--random-seed", "0",
             "--concurrency", concurrency_val,
-            "--request-rate", request_rate_val,
             "--request-count", num_prompts_val,
-            "--output-format", "json",
-            "-v", f"{log_file.parent.resolve()}:/benchmark_output",
-            "--profile-export-file", json_output_file_container,
             "--synthetic-input-tokens-mean", input_length_val,
             "--output-tokens-mean", output_length_val,
-            "--random-seed", "0",
-            "--endpoint-type", "chat",
-            "--endpoint", f"http://localhost:{self.server.port}/v1/completions"
+            "--extra-inputs", f"max_tokens:{input_length_val}",
+            "--extra-inputs", f"min_tokens:{input_length_val}",
+            "--profile-export-file", "profile_export.json",
+            "--artifact-dir", "/tmp/artifacts",
+            "--warmup-request-count", concurrency_val,
         ]
-        cmd.extend(dataset_args)
 
         if self.script_generator:
             # Return the command template for script generation
@@ -99,7 +90,8 @@ class GenAIPerfClient(BenchmarkClientBase):
             f.flush()
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
 
-        return self._extract_metrics(json_output_file_host)
+        result_file = self.server._log_dir / self.server.exp_tag / f"{self.server.get_model_path().replace('/', '_')}-openai-chat-concurrency{concurrency}" / "profile_export_genai_perf.json"
+        return self._extract_metrics(result_file)
 
     def _extract_metrics(self, log_file: Path) -> Dict[str, float]:
         # In genai-perf, log_file is the path to the JSON output file.
@@ -140,6 +132,8 @@ class GenAIPerfClient(BenchmarkClientBase):
                 if metric['name'] in metric_map:
                     metrics[metric_map[metric['name']]] = float(metric['value'])
         except (KeyError, IndexError) as e:
+            print("raw_metrics:", raw_metrics)
+            print("Extracted metrics:", metrics)
             logger.error("Could not extract metrics from genai-perf output. Unexpected format in %s: %s", log_file, e)
 
         return metrics
