@@ -107,34 +107,45 @@ class GenAIPerfClient(BenchmarkClientBase):
                 return {}
 
         # Mapping from genai-perf metric names to our internal names
-        metric_map = {
-            'avg_first_token_latency': 'ttft_mean',
-            'p50_first_token_latency': 'ttft_median',
-            'p99_first_token_latency': 'ttft_p99',
-            'avg_output_token_latency': 'tpot_mean',
-            'p50_output_token_latency': 'tpot_median',
-            'p99_output_token_latency': 'tpot_p99',
-            'avg_inter_token_latency': 'itl_mean',
-            'p50_inter_token_latency': 'itl_median',
-            'p99_inter_token_latency': 'itl_p99',
-            'avg_request_latency': 'e2el_mean',
-            'p50_request_latency': 'e2el_median',
-            'p99_request_latency': 'e2el_p99',
-            'request_throughput': 'request_throughput',
-            'output_throughput': 'output_token_throughput',
-            'total_throughput': 'total_token_throughput',
+        METRIC_MAPPING = {
+            # TTFT
+            'ttft_mean': ('time_to_first_token', 'avg'),
+            'ttft_median': ('time_to_first_token', 'p50'),
+            'ttft_p99': ('time_to_first_token', 'p99'),
+
+            # TPOT (Mapped from inter_token_latency)
+            'tpot_mean': ('inter_token_latency', 'avg'),
+            'tpot_median': ('inter_token_latency', 'p50'),
+            'tpot_p99': ('inter_token_latency', 'p99'),
+
+            # ITL
+            'itl_mean': ('inter_token_latency', 'avg'),
+            'itl_median': ('inter_token_latency', 'p50'),
+            'itl_p99': ('inter_token_latency', 'p99'),
+
+            # E2EL
+            'e2el_mean': ('request_latency', 'avg'),
+            'e2el_median': ('request_latency', 'p50'),
+            'e2el_p99': ('request_latency', 'p99'),
+
+            # Throughput
+            'request_throughput': ('request_throughput', 'avg'),
+            'output_token_throughput': ('output_token_throughput', 'avg'),
         }
 
-        metrics = {}
-        try:
-            raw_metrics = data['experiments'][0]['metrics']
-            for metric in raw_metrics:
-                if metric['name'] in metric_map:
-                    metrics[metric_map[metric['name']]] = float(metric['value'])
-        except (KeyError, IndexError) as e:
-            print("raw_metrics:", raw_metrics)
-            print("Extracted metrics:", metrics)
-            logger.error("Could not extract metrics from genai-perf output. Unexpected format in %s: %s", log_file, e)
+        # Extract metrics using Dictionary Comprehension (The concise part)
+        metrics = {
+            key: data[source][stat]
+            for key, (source, stat) in METRIC_MAPPING.items()
+        }
+        metrics['test_time'] = data.get('duration', 0.0)
+
+        # Calculate Total Throughput separately (Calculation logic)
+        # Total = Output + (Request * Input_Avg_Len)
+        metrics['total_token_throughput'] = (
+            metrics['output_token_throughput'] +
+            (metrics['request_throughput'] * data['input_sequence_length']['avg'])
+        )
 
         return metrics
 
