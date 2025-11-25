@@ -24,7 +24,7 @@ class SGLangServer(BenchmarkBase):
                  test_plan: str,
                  no_warmup: bool = False,
                  **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(name="sglang", **kwargs)
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._is_no_warmup = no_warmup
 

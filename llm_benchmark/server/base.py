@@ -23,6 +23,7 @@ BENCHMARK_BASE_PORT = 23400
 class BenchmarkBase:
     """Base class for benchmark components."""
     def __init__(self,
+                 name: str,
                  image: str = None,
                  envs: Dict[str, str] = None,
                  model_path_or_id: str = None,
@@ -36,6 +37,7 @@ class BenchmarkBase:
                  endpoint: str = None,
                  script_generator: ScriptGenerator = None):
 
+        self.name = name
         self.image = image
         self.server_process: Optional[subprocess.Popen] = None
         self._common_envs = envs
@@ -54,11 +56,6 @@ class BenchmarkBase:
         self._model_path = self._load_model_from_path_or_hub(model_path_or_id, model_root_dir)
         self._model_name = f"{self._model_path.parent.name}/{self._model_path.name}"
         self._container_model_path = Path(f"/models/{self._model_name}")
-
-        if endpoint is None:
-            self._gpu_devices, self._num_gpus, self._port = self._get_system_config(gpu_devices, num_gpus)
-            self._parallel_size = {'tp': str(self.num_gpus)}
-            self._load_model_config()
 
         # Initialize container runtime
         if endpoint is None:
