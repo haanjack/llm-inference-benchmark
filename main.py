@@ -117,6 +117,12 @@ def main():
             "dry_run": args.dry_run,
         })
 
+        logger.info("Model Name: %s", args.model_path_or_id)
+        logger.info("GPU devices: %s", args.gpu_devices)
+        logger.info("Backend: %s", args.backend)
+        logger.info("Image: %s", args.image)
+        logger.info("Benchmark Client: %s", args.benchmark_client)
+
         if args.endpoint:
             server = RemoteServer(**server_kwargs)
         else:
