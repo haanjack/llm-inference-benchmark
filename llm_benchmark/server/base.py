@@ -338,6 +338,16 @@ class BenchmarkBase:
         return self._exp_tag
 
     @property
+    def model_config(self) -> str:
+        """Returns the model config."""
+        return self._model_config
+
+    @property
+    def parallel_size(self) -> Dict[str, str]:
+        """Returns the parallel size."""
+        return self._parallel_size
+
+    @property
     def gpu_devices(self) -> str:
         """Returns the GPU devices string."""
         if not hasattr(self, '_gpu_devices'):

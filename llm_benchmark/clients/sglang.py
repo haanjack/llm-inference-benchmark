@@ -94,22 +94,22 @@ class SGLangClient(BenchmarkClientBase):
     def _extract_metrics(self, log_file: Path) -> Dict[str, float]:
         metrics = {}
         patterns = {
-            'test_time': r'Benchmark duration \(s\):\s*([\d.]+)',
-            'ttft_mean': r'Mean TTFT \(ms\):\s*([\d.]+)',
-            'ttft_median': r'Median TTFT \(ms\):\s*([\d.]+)',
-            'ttft_p99': r'P99 TTFT \(ms\):\s*([\d.]+)',
-            'tpot_mean': r'Mean TPOT \(ms\):\s*([\d.]+)',
-            'tpot_median': r'Median TPOT \(ms\):\s*([\d.]+)',
-            'tpot_p99': r'P99 TPOT \(ms\):\s*([\d.]+)',
-            'itl_mean': r'Mean ITL \(ms\):\s*([\d.]+)',
-            'itl_median': r'Median ITL \(ms\):\s*([\d.]+)',
-            'itl_p99': r'P99 ITL \(ms\):\s*([\d.]+)',
-            'e2el_mean': r'Mean E2EL \(ms\):\s*([\d.]+)',
-            'e2el_median': r'Median E2EL \(ms\):\s*([\d.]+)',
-            'e2el_p99': r'P99 E2EL \(ms\):\s*([\d.]+)',
-            'request_throughput': r'Request throughput \(req/s\):\s*([\d.]+)',
-            'output_token_throughput': r'Output token throughput \(tok/s\):\s*([\d.]+)',
-            'total_token_throughput': r'Total Token throughput \(tok/s\):\s*([\d.]+)'
+            'test_time_s': r'Benchmark duration \(s\):\s*([\d.]+)',
+            'ttft_mean_ms': r'Mean TTFT \(ms\):\s*([\d.]+)',
+            'ttft_median_ms': r'Median TTFT \(ms\):\s*([\d.]+)',
+            'ttft_p99_ms': r'P99 TTFT \(ms\):\s*([\d.]+)',
+            'tpot_mean_ms': r'Mean TPOT \(ms\):\s*([\d.]+)',
+            'tpot_median_ms': r'Median TPOT \(ms\):\s*([\d.]+)',
+            'tpot_p99_ms': r'P99 TPOT \(ms\):\s*([\d.]+)',
+            'itl_mean_ms': r'Mean ITL \(ms\):\s*([\d.]+)',
+            'itl_median_ms': r'Median ITL \(ms\):\s*([\d.]+)',
+            'itl_p99_ms': r'P99 ITL \(ms\):\s*([\d.]+)',
+            'e2el_mean_ms': r'Mean E2EL \(ms\):\s*([\d.]+)',
+            'e2el_median_ms': r'Median E2EL \(ms\):\s*([\d.]+)',
+            'e2el_p99_ms': r'P99 E2EL \(ms\):\s*([\d.]+)',
+            'request_throughput_rps': r'Request throughput \(req/s\):\s*([\d.]+)',
+            'output_token_throughput_tps': r'Output token throughput \(tok/s\):\s*([\d.]+)',
+            'total_token_throughput_tps': r'Total Token throughput \(tok/s\):\s*([\d.]+)'
         }
         log_content = log_file.read_text()
 

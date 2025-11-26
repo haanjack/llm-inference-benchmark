@@ -25,7 +25,7 @@ class BenchmarkClientBase(ABC):
         self.script_generator = script_generator
 
         self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
-        self._result_file = self._log_dir / "result_list.csv"
+        self._results_file = self._log_dir / f"results_{self.server.name}_{self.name}.csv"
 
     @abstractmethod
     def run_single_benchmark(self, test_args: Dict[str, Any], **kwargs):
@@ -51,13 +51,14 @@ class BenchmarkClientBase(ABC):
         """Check if a benchmark result already exists."""
         log_file = self._get_log_path(**kwargs)
         if not log_file.exists():
+            logger.info("Log file %s does not exist", log_file)
             return None
 
-        if not self._result_file.exists():
+        if not self.results_file.exists():
             return None
 
         try:
-            df = pd.read_csv(self._result_file)
+            df = pd.read_csv(self.results_file)
             # Create a filter condition for all kwargs
             condition = pd.Series([True] * len(df))
             for key, value in kwargs.items():
@@ -65,10 +66,28 @@ class BenchmarkClientBase(ABC):
                     condition &= (df[key].astype(type(value) if value is not None else str) == value)
 
             if condition.any():
-                logger.info("Found existing results in %s", self._result_file)
-                return self._extract_metrics(log_file)
+                # logger.info("Found existing results in %s", self.results_file)
+                return df[condition].iloc[0].to_dict()
         except (pd.errors.EmptyDataError, KeyError) as e:
-            logger.warning("Could not read or parse existing result file %s: %s", self._result_file, e)
+            logger.warning("Could not read or parse existing result file %s: %s", self.results_file, e)
             return None
 
         return None
+
+    def _save_results(self, metrics: Dict[str, float], **kwargs):
+        result_line = ( # pyright: ignore
+            f"{Path(self.server.model_config).stem},{self.server.parallel_size.get('tp', '1')},"
+            f"{kwargs.get('request_rate')},{kwargs.get('num_prompts')},{kwargs.get('batch_size')},{kwargs.get('concurrency')},{kwargs.get('input_length')},{kwargs.get('output_length')},{metrics['test_time_s']:.2f},"
+            f"{metrics['ttft_mean_ms']:.2f},{metrics['ttft_median_ms']:.2f},{metrics['ttft_p99_ms']:.2f},"
+            f"{metrics['tpot_mean_ms']:.2f},{metrics['tpot_median_ms']:.2f},{metrics['tpot_p99_ms']:.2f},"
+            f"{metrics['itl_mean_ms']:.2f},{metrics['itl_median_ms']:.2f},{metrics['itl_p99_ms']:.2f},"
+            f"{metrics['e2el_mean_ms']:.2f},{metrics['e2el_median_ms']:.2f},{metrics['e2el_p99_ms']:.2f},"
+            f"{metrics['request_throughput_rps']:.2f},{metrics['output_token_throughput_tps']:.2f},{metrics['total_token_throughput_tps']:.2f}\n"
+        )
+        with open(self.results_file, 'a', encoding='utf-8') as f:
+            f.write(result_line)
+
+    @property
+    def results_file(self) -> Path:
+        """Get the path to the results CSV file."""
+        return self._results_file

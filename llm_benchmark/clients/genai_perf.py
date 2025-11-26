@@ -90,8 +90,11 @@ class GenAIPerfClient(BenchmarkClientBase):
             f.flush()
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
 
+        # Extract metrics and save results
         result_file = self.server._log_dir / self.server.exp_tag / f"{self.server.get_model_path().replace('/', '_')}-openai-chat-concurrency{concurrency}" / "profile_export_genai_perf.json"
-        return self._extract_metrics(result_file)
+        metrics = self._extract_metrics(result_file)
+        self._save_results(metrics, **kwargs)
+        return metrics
 
     def _extract_metrics(self, log_file: Path) -> Dict[str, float]:
         # In genai-perf, log_file is the path to the JSON output file.
@@ -109,28 +112,28 @@ class GenAIPerfClient(BenchmarkClientBase):
         # Mapping from genai-perf metric names to our internal names
         METRIC_MAPPING = {
             # TTFT
-            'ttft_mean': ('time_to_first_token', 'avg'),
-            'ttft_median': ('time_to_first_token', 'p50'),
-            'ttft_p99': ('time_to_first_token', 'p99'),
+            'ttft_mean_ms': ('time_to_first_token', 'avg'),
+            'ttft_median_ms': ('time_to_first_token', 'p50'),
+            'ttft_p99_ms': ('time_to_first_token', 'p99'),
 
             # TPOT (Mapped from inter_token_latency)
-            'tpot_mean': ('inter_token_latency', 'avg'),
-            'tpot_median': ('inter_token_latency', 'p50'),
-            'tpot_p99': ('inter_token_latency', 'p99'),
+            'tpot_mean_ms': ('inter_token_latency', 'avg'),
+            'tpot_median_ms': ('inter_token_latency', 'p50'),
+            'tpot_p99_ms': ('inter_token_latency', 'p99'),
 
             # ITL
-            'itl_mean': ('inter_token_latency', 'avg'),
-            'itl_median': ('inter_token_latency', 'p50'),
-            'itl_p99': ('inter_token_latency', 'p99'),
+            'itl_mean_ms': ('inter_token_latency', 'avg'),
+            'itl_median_ms': ('inter_token_latency', 'p50'),
+            'itl_p99_ms': ('inter_token_latency', 'p99'),
 
             # E2EL
-            'e2el_mean': ('request_latency', 'avg'),
-            'e2el_median': ('request_latency', 'p50'),
-            'e2el_p99': ('request_latency', 'p99'),
+            'e2el_mean_ms': ('request_latency', 'avg'),
+            'e2el_median_ms': ('request_latency', 'p50'),
+            'e2el_p99_ms': ('request_latency', 'p99'),
 
             # Throughput
-            'request_throughput': ('request_throughput', 'avg'),
-            'output_token_throughput': ('output_token_throughput', 'avg'),
+            'request_throughput_rps': ('request_throughput', 'avg'),
+            'output_token_throughput_tps': ('output_token_throughput', 'avg'),
         }
 
         # Extract metrics using Dictionary Comprehension (The concise part)
@@ -138,13 +141,13 @@ class GenAIPerfClient(BenchmarkClientBase):
             key: data[source][stat]
             for key, (source, stat) in METRIC_MAPPING.items()
         }
-        metrics['test_time'] = data.get('duration', 0.0)
+        metrics['test_time_s'] = data.get('duration', 0.0)
 
         # Calculate Total Throughput separately (Calculation logic)
         # Total = Output + (Request * Input_Avg_Len)
-        metrics['total_token_throughput'] = (
-            metrics['output_token_throughput'] +
-            (metrics['request_throughput'] * data['input_sequence_length']['avg'])
+        metrics['total_token_throughput_tps'] = (
+            metrics['output_token_throughput_tps'] +
+            (metrics['request_throughput_rps'] * data['input_sequence_length']['avg'])
         )
 
         return metrics
@@ -192,42 +195,42 @@ class GenAIPerfClient(BenchmarkClientBase):
             metrics = {}
 
             # 1. Time To First Token (TTFT)
-            metrics['ttft_mean']   = get_stat("time_to_first_token", "avg") * NS_TO_MS
-            metrics['ttft_median'] = get_stat("time_to_first_token", "p50") * NS_TO_MS
-            metrics['ttft_p99']    = get_stat("time_to_first_token", "p99") * NS_TO_MS
+            metrics['ttft_mean_ms']   = get_stat("time_to_first_token", "avg") * NS_TO_MS
+            metrics['ttft_median_ms'] = get_stat("time_to_first_token", "p50") * NS_TO_MS
+            metrics['ttft_p99_ms']    = get_stat("time_to_first_token", "p99") * NS_TO_MS
 
             # 2. Inter-Token Latency (ITL) -> Map to TPOT/ITL
             # GenAI-Perf uses ITL. For vLLM comparison, we can map this to TPOT/ITL.
-            metrics['tpot_mean']   = get_stat("inter_token_latency", "avg") * NS_TO_MS
-            metrics['tpot_median'] = get_stat("inter_token_latency", "p50") * NS_TO_MS
-            metrics['tpot_p99']    = get_stat("inter_token_latency", "p99") * NS_TO_MS
+            metrics['tpot_mean_ms']   = get_stat("inter_token_latency", "avg") * NS_TO_MS
+            metrics['tpot_median_ms'] = get_stat("inter_token_latency", "p50") * NS_TO_MS
+            metrics['tpot_p99_ms']    = get_stat("inter_token_latency", "p99") * NS_TO_MS
 
-            metrics['itl_mean']    = metrics['tpot_mean']
-            metrics['itl_median']  = metrics['tpot_median']
-            metrics['itl_p99']     = metrics['tpot_p99']
+            metrics['itl_mean_ms']    = metrics['tpot_mean_ms']
+            metrics['itl_median_ms']  = metrics['tpot_median_ms']
+            metrics['itl_p99_ms']     = metrics['tpot_p99_ms']
 
             # 3. End-to-End Latency (E2EL)
-            metrics['e2el_mean']   = get_stat("request_latency", "avg") * NS_TO_MS
-            metrics['e2el_median'] = get_stat("request_latency", "p50") * NS_TO_MS
-            metrics['e2el_p99']    = get_stat("request_latency", "p99") * NS_TO_MS
+            metrics['e2el_mean_ms']   = get_stat("request_latency", "avg") * NS_TO_MS
+            metrics['e2el_median_ms'] = get_stat("request_latency", "p50") * NS_TO_MS
+            metrics['e2el_p99_ms']    = get_stat("request_latency", "p99") * NS_TO_MS
 
             # 4. Throughput (No conversion needed usually, assuming req/s and tok/s)
             # Sometimes GenAI-Perf puts these at the top level or calculates them differently.
             # If they are in the statistics block:
-            metrics['request_throughput'] = get_stat("request_throughput", "avg")
-            metrics['output_token_throughput'] = get_stat("output_token_throughput", "avg")
+            metrics['request_throughput_rps'] = get_stat("request_throughput", "avg")
+            metrics['output_token_throughput_tps'] = get_stat("output_token_throughput", "avg")
 
             # Total token throughput might need calculation if not explicitly provided
             # But strictly speaking, output_token_throughput is what vLLM usually compares in decoding speed.
             # If you need (Input + Output) / Time:
             # metrics['total_token_throughput'] = ... (requires input token count data)
             # For now, mapping output throughput is safer.
-            metrics['total_token_throughput'] = metrics['output_token_throughput']
+            metrics['total_token_throughput_tps'] = metrics['output_token_throughput_tps']
 
             # 5. Test Time (Duration)
             # Often represented as 'duration' in ns or s
             # If not present, can be inferred or passed from arguments
-            metrics['test_time'] = 0.0
+            metrics['test_time_s'] = 0.0
 
             return metrics
 

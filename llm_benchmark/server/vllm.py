@@ -247,16 +247,6 @@ class VLLMServer(BenchmarkBase):
         return self._container_name
 
     @property
-    def model_config(self) -> str:
-        """Returns the model config."""
-        return self._model_config
-
-    @property
-    def parallel_size(self) -> Dict[str, str]:
-        """Returns the parallel size."""
-        return self._parallel_size
-
-    @property
     def port(self) -> int:
         """Returns the vLLM server port."""
         return self._port

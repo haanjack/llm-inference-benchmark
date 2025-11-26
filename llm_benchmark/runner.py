@@ -38,11 +38,11 @@ class BenchmarkRunner:
             ("Req req/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
         ]
         self._csv_headers = [
-            "Model Config", "TP Size", "Request Rate", "Num. Prompts", "Batch Size", "Concurrency",
-            "Input Length", "Output Length", "Test Time(s)", "Mean TTFT(ms)", "Median TTFT(ms)",
-            "P99 TTFT(ms)", "Mean TPOT(ms)", "Median TPOT(ms)", "P99 TPOT(ms)", "Mean ITL(ms)",
-            "Median ITL(ms)", "P99 ITL(ms)", "Mean E2EL(ms)", "Median E2EL(ms)", "P99 E2EL(ms)",
-            "Request Tput(req/s)", "Output Tput(tok/s)", "Total Tput(tok/s)"
+            "model_config", "tp_size", "request_rate", "num_prompts", "batch_size", "concurrency",
+            "input_length", "output_length", "test_time_s", "ttft_mean_ms", "ttft_median_ms",
+            "ttft_p99_ms", "tpot_mean_ms", "tpot_median_ms", "tpot_p99_ms", "itl_mean_ms",
+            "itl_median_ms", "itl_p99_ms", "e2el_mean_ms", "e2el_median_ms", "e2el_p99_ms",
+            "request_throughput_rps", "output_token_throughput_tps", "total_token_throughput_tps"
         ]
         self._setup_logging_dirs()
         if not self._test_plan_path.exists() and not self._is_dry_run:
@@ -53,23 +53,17 @@ class BenchmarkRunner:
     def _setup_logging_dirs(self):
         """Setup benchmark result logging directories."""
         self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
-        self.result_file = self._log_dir / "result_list.csv"
 
         if self._is_dry_run:
             return
-        self.result_file.parent.mkdir(parents=True, exist_ok=True)
+        self.client.results_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # create result_list.csv
-        if not self.result_file.exists():
-            with open(self.result_file, 'w', encoding='utf-8') as f:
+        # create result saving csv file
+        if not self.client.results_file.exists():
+            with open(self.client.results_file, 'w', encoding='utf-8') as f:
                 f.write(','.join(self._csv_headers) + '\n')
 
     def _print_benchmark_info(self):
-        logger.info("Start LLM benchmark")
-        logger.info("Model Name: %s", self.server.model_name)
-        logger.info("Backend: %s", self.server.__class__.__name__)
-        logger.info("Image: %s", self.server.image)
-        logger.info("GPU devices: %s", self.server.gpu_devices)
         logger.info("Benchmark plan: %s", self._test_plan)
         logger.info("Benchmark test plan:")
         try:
@@ -211,7 +205,7 @@ class BenchmarkRunner:
                     logger.info("Script generation complete.")
                     return
 
-                logger.info("Benchmarking complete. Results saved to %s", self.result_file)
+                logger.info("Benchmarking complete. Results saved to %s", self.client.results_file)
 
     def _print_header(self):
         """Print result's table header."""
@@ -233,7 +227,6 @@ class BenchmarkRunner:
                 metrics = self.client.run_single_benchmark(test_args, **test_plan)
                 if metrics:
                     self._print_result(metrics=metrics, **test_plan)
-                    self._save_results(metrics=metrics, **test_plan)
 
                 if self._is_dry_run:
                     if input("Continue? (Y/n) ").lower() in ['n', 'no']:
@@ -243,19 +236,6 @@ class BenchmarkRunner:
                     logger.error("Benchmark failed for plan: %s", test_plan)
                     logger.error("%s", str(e).rsplit('\n', maxsplit=1)[-1])
                     return
-
-    def _save_results(self, metrics: Dict[str, float], **kwargs):
-        result_line = ( # pyright: ignore
-            f"{Path(self.server.model_config).stem},{self.server.parallel_size.get('tp', '1')},"
-            f"{kwargs.get('request_rate')},{kwargs.get('num_prompts')},{kwargs.get('batch_size')},{kwargs.get('concurrency')},{kwargs.get('input_length')},{kwargs.get('output_length')},{metrics['test_time']:.2f},"
-            f"{metrics['ttft_mean']:.2f},{metrics['ttft_median']:.2f},{metrics['ttft_p99']:.2f},"
-            f"{metrics['tpot_mean']:.2f},{metrics['tpot_median']:.2f},{metrics['tpot_p99']:.2f},"
-            f"{metrics['itl_mean']:.2f},{metrics['itl_median']:.2f},{metrics['itl_p99']:.2f},"
-            f"{metrics['e2el_mean']:.2f},{metrics['e2el_median']:.2f},{metrics['e2el_p99']:.2f},"
-            f"{metrics['request_throughput']:.2f},{metrics['output_token_throughput']:.2f},{metrics['total_token_throughput']:.2f}\n"
-        )
-        with open(self.result_file, 'a', encoding='utf-8') as f:
-            f.write(result_line)
 
     def _format_result_for_console(self, values: List[str]) -> str:
         if len(values) != len(self._columns): # pyright: ignore
@@ -268,11 +248,11 @@ class BenchmarkRunner:
     def _print_result(self, metrics: Dict[str, float], **kwargs): # pyright: ignore
         values = [
             Path(self.server.model_config).stem, str(self.server.parallel_size.get('tp', '1')),
-            str(kwargs.get('request_rate')), str(kwargs.get('num_prompts')), str(kwargs.get('batch_size')), str(kwargs.get('concurrency')), str(kwargs.get('input_length')), str(kwargs.get('output_length')), f"{metrics['test_time']:.2f}",
-            f"{metrics['ttft_mean']:.2f}", f"{metrics['ttft_median']:.2f}", f"{metrics['ttft_p99']:.2f}",
-            f"{metrics['tpot_mean']:.2f}", f"{metrics['tpot_median']:.2f}", f"{metrics['tpot_p99']:.2f}",
-            f"{metrics['itl_mean']:.2f}", f"{metrics['itl_median']:.2f}", f"{metrics['itl_p99']:.2f}",
-            f"{metrics['e2el_mean']:.2f}", f"{metrics['e2el_median']:.2f}", f"{metrics['e2el_p99']:.2f}",
-            f"{metrics['request_throughput']:.2f}", f"{metrics['output_token_throughput']:.2f}", f"{metrics['total_token_throughput']:.2f}"
+            str(kwargs.get('request_rate')), str(kwargs.get('num_prompts')), str(kwargs.get('batch_size')), str(kwargs.get('concurrency')), str(kwargs.get('input_length')), str(kwargs.get('output_length')), f"{metrics['test_time_s']:.2f}",
+            f"{metrics['ttft_mean_ms']:.2f}", f"{metrics['ttft_median_ms']:.2f}", f"{metrics['ttft_p99_ms']:.2f}",
+            f"{metrics['tpot_mean_ms']:.2f}", f"{metrics['tpot_median_ms']:.2f}", f"{metrics['tpot_p99_ms']:.2f}",
+            f"{metrics['itl_mean_ms']:.2f}", f"{metrics['itl_median_ms']:.2f}", f"{metrics['itl_p99_ms']:.2f}",
+            f"{metrics['e2el_mean_ms']:.2f}", f"{metrics['e2el_median_ms']:.2f}", f"{metrics['e2el_p99_ms']:.2f}",
+            f"{metrics['request_throughput_rps']:.2f}", f"{metrics['output_token_throughput_tps']:.2f}", f"{metrics['total_token_throughput_tps']:.2f}"
         ]
         logger.info(self._format_result_for_console(values))
