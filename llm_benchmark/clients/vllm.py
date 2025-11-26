@@ -11,13 +11,18 @@ from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
+VLLM_IMAGE = "docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"
+
 class VLLMClient(BenchmarkClientBase):
     """vLLM benchmark client."""
 
     def __init__(self, server: VLLMServer, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
         super().__init__("vllm", server, is_dry_run, script_generator)
 
-    def run_single_benchmark(self, test_args: Dict[str, Any], **kwargs):
+    def run_single_benchmark(self,
+                             test_args: Dict[str, Any],
+                             client_image: str = VLLM_IMAGE,
+                             **kwargs):
         """Run a single benchmark test."""
         request_rate = kwargs.get('request_rate')
         concurrency = kwargs.get('concurrency')
@@ -44,11 +49,20 @@ class VLLMClient(BenchmarkClientBase):
 
         cmd = []
         if not self.server.in_container:
-            cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
+            if self.server.addr != "0.0.0.0":
+                cmd.extend([
+                    self.server.container_runtime, "run", "--rm",
+                    "--network=host",
+                    "-v", f"{Path.cwd()}:{Path.cwd()}",
+                    "-v", f"{self.server._model_path}:{model_path_val}",
+                    client_image,
+                ])
+            else:
+                cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         cmd.extend([
             "vllm", "bench", "serve",
             "--model", model_path_val,
-            "--backend", "vllm", "--host", "localhost", "--port", str(self.server.port),
+            "--backend", "vllm", "--host", self.server.addr, "--port", str(self.server.port),
             "--dataset-name", dataset_name,
             "--ignore-eos",
             "--trust-remote-code",

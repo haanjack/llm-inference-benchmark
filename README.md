@@ -7,6 +7,8 @@ This is benchmark script for extensive inference tests for various setups. This 
  - iteration based num prompts control
  - request rate control
  - Execution support for `docker`, `podman`, and direct in-container runs
+ - multiple inference server: vllm, sglang, and remote endpoint
+ - multiple benchmark clients: vllm, sglang, and genai-perf
 
 In addition, this benchmark test tries to obey [AMD's vLLM V1 performance optimization](https://rocm.docs.amd.com/en/develop/how-to/rocm-for-ai/inference-optimization/vllm-optimization.html) guide and validation.
 
@@ -30,10 +32,12 @@ The script supports two main execution modes:
 The following command shows how to use this.
 
 ```bash
-python run_vllm_benchmark.py \
-    --model-config configs/models/default.yaml \
-    --model-path ~/models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
-    --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+python main.py \
+    --model-config configs/models/default-vllm.yaml \
+    --model-path-or-id Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
+    --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103 \
+    --backend vllm \
+    --benchmark-client vllm \
     --test-plan test \
     --gpu-devices 0
 ```
@@ -149,7 +153,7 @@ default,1,0,4,256,8,512,128,2.48,35.05,33.35,51.13,4.59,4.57,4.74,4.59,4.50,5.70
 All the benchmark logs are stored in `logs/<model name>/<docker-tag>` directory following the model name and docker images tags. And single benchmark logs are stored in `<model-config>-t<tp size>/<run-configs>`.
 
 ## Example
-Following command is an example of benchmarks.
+Following command is an example of benchmarks. (server: `vllm` and client: `vllm`)
 
 ### LLaMA3.3 70B
 
@@ -157,8 +161,9 @@ Following command is an example of benchmarks.
 python3 run_vllm_benchmark.py \
   --model-config configs/models/llama.yaml \
   --model-path ~/models/amd/Llama-3.3-70B-Instruct-FP8-KV \
-  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103 \
   --test-plan test \
+  --benchmark-client vllm \
   --gpu-devices=0
 ```
 
@@ -168,8 +173,9 @@ python3 run_vllm_benchmark.py \
 python3 run_vllm_benchmark.py \
   --model-config configs/models/gpt-oss.yaml \
   --model-path ~/models/openai/gpt-oss-120b \
-  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
   --test-plan test \
+  --benchmark-client vllm \
   --gpu-devices=0
 ```
 
@@ -179,8 +185,9 @@ python3 run_vllm_benchmark.py \
 python3 run_vllm_benchmark.py \
   --model-config configs/models/deepseek.yaml \
   --model-path ~/models/deepseek-ai/DeepSeek-R1-0528 \
-  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
   --test-plan test \
+  --benchmark-client vllm \
   --gpu-devices=0,1,2,3,4,5,6,7
 ```
 
@@ -190,8 +197,9 @@ python3 run_vllm_benchmark.py \
 python run_vllm_benchmark.py \
   --model-config configs/models/default.yaml \
   --model-path ~/models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
-  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
   --test-plan test \
+  --benchmark-client vllm \
   --gpu-devices 0
 ```
 

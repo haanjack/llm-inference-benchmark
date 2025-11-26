@@ -8,6 +8,7 @@ from llm_benchmark.utils.script_generator import ScriptGenerator
 from typing import Dict, List, Optional, Union, Any
 import yaml
 import requests
+from urllib.parse import urlparse
 from huggingface_hub import snapshot_download
 
 # Configure logging
@@ -375,14 +376,25 @@ class BenchmarkBase:
         return self._container_name
 
     @property
+    def addr(self) -> str:
+        """Returns the server address"""
+        if not self._remote_server_endpoint:
+            return "0.0.0.0"
+        parsed_url = urlparse(self._remote_server_endpoint)
+        return parsed_url.hostname
+
+    @property
     def port(self) -> int:
         """Returns the port number."""
-        return self._port
+        if not self._remote_server_endpoint:
+            return self._port
+        parsed_url = urlparse(self._remote_server_endpoint)
+        return parsed_url.port
 
     @property
     def endpoint(self) -> str:
         """returns server endpoint"""
-        return f"http://0.0.0.0:{self.port}"
+        return f"{self.addr}:{self.port}"
 
     def generate_script(self, generator: ScriptGenerator):
         """Generates the server-side portion of the benchmark script."""

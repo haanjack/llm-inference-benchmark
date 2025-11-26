@@ -1,3 +1,4 @@
+import cmd
 import logging
 import re
 import subprocess
@@ -12,6 +13,7 @@ from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
+SGLANG_IMAGE = "docker.io/rocm/sgl-dev:v0.5.5.post3-rocm700-mi30x-20251123"
 
 class SGLangClient(BenchmarkClientBase):
     """Client for SGLang benchmarking."""
@@ -19,7 +21,10 @@ class SGLangClient(BenchmarkClientBase):
     def __init__(self, server: BenchmarkBase, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
         super().__init__("sglang", server, is_dry_run, script_generator)
 
-    def run_single_benchmark(self, test_args: Dict[str, Any], **kwargs):
+    def run_single_benchmark(self,
+                             test_args: Dict[str, Any],
+                             client_image: str = SGLANG_IMAGE,
+                             **kwargs):
         """Run a single benchmark test."""
         request_rate = kwargs.get("request_rate")
         concurrency = kwargs.get("concurrency")
@@ -28,8 +33,6 @@ class SGLangClient(BenchmarkClientBase):
         num_prompts = kwargs.get("num_prompts")
         batch_size = kwargs.get("batch_size")
         dataset_name = kwargs.get('dataset_name')
-
-        host, port = self.server.endpoint.split(":")
 
         use_script_vars = self.script_generator is not None
 
@@ -43,11 +46,20 @@ class SGLangClient(BenchmarkClientBase):
 
         cmd = []
         if not self.server.in_container:
-            cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
+            if self.server.addr != "0.0.0.0":
+                cmd.extend([
+                    self.server.container_runtime, "run", "--rm",
+                    "--network=host",
+                    "-v", f"{Path.cwd()}:{Path.cwd()}",
+                    "-v", f"{self.server._model_path}:{model_path_val}",
+                    client_image,
+                ])
+            else:
+                cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
         cmd.extend([
             "python3", "-m", "sglang.bench_serving",
-            "--host", host,
-            "--port", str(port),
+            "--host", self.server.addr,
+            "--port", str(self.server.port),
             "--tokenizer", model_path_val,
             "--dataset-name", dataset_name,
             "--request-rate", request_rate_val,

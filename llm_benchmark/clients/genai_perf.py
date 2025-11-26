@@ -13,6 +13,7 @@ from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
+GENAI_PERF_IMAGE = "nvcr.io/nvidia/tritonserver:25.10-py3-sdk"
 
 class GenAIPerfClient(BenchmarkClientBase):
     """GenAI-Perf benchmark client."""
@@ -20,11 +21,14 @@ class GenAIPerfClient(BenchmarkClientBase):
     def __init__(self, server: BenchmarkBase, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
         super().__init__("genai-perf", server, is_dry_run, script_generator)
 
-    def run_single_benchmark(self, test_args: Dict[str, Any], **kwargs):
+    def run_single_benchmark(self,
+                             test_args: Dict[str, Any],
+                             client_image: str = GENAI_PERF_IMAGE,
+                             **kwargs):
         """Run a single benchmark test."""
         random_range_ratio = test_args.get('random_range_ratio', 0.0)
 
-        triton_image = "nvcr.io/nvidia/tritonserver:25.10-py3-sdk"
+
         request_rate = kwargs.get('request_rate')
         concurrency = kwargs.get('concurrency')
         input_length = kwargs.get('input_length')
@@ -53,12 +57,12 @@ class GenAIPerfClient(BenchmarkClientBase):
             "--network=host",
             "-v", f"{log_file.parent.resolve()}:/tmp/artifacts",
             "-v", f"{self.server._model_path}:{model_path_val}",
-            triton_image,
+            client_image,
             "genai-perf", "profile",
             "-m", model_path_val,
             "--tokenizer", model_path_val,
             "--endpoint-type", "chat",
-            "--url", f"http://localhost:{self.server.port}",
+            "--url", f"{self.server.addr}:{self.server.port}",
             "--streaming",
             "--random-seed", "0",
             "--concurrency", concurrency_val,
