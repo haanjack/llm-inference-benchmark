@@ -38,7 +38,7 @@ class BenchmarkRunner:
             ("Req req/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
         ]
         self._csv_headers = [
-            "model_config", "tp_size", "request_rate", "num_prompts", "batch_size", "concurrency",
+            "model_config", "tp_size", "request_rate", "num_prompts", "concurrency",
             "input_length", "output_length", "test_time_s", "ttft_mean_ms", "ttft_median_ms",
             "ttft_p99_ms", "tpot_mean_ms", "tpot_median_ms", "tpot_p99_ms", "itl_mean_ms",
             "itl_median_ms", "itl_p99_ms", "e2el_mean_ms", "e2el_median_ms", "e2el_p99_ms",
@@ -125,7 +125,6 @@ class BenchmarkRunner:
                 'output_lengths': ensure_list(scenario.get('output_length'), [128]),
                 'num_iterations': ensure_list(scenario.get('num_iteration'), [8 if 'num_prompts' not in scenario else 1]),
                 'num_prompts': ensure_list(scenario.get('num_prompts'), [1000 if 'num_iteration' not in scenario else 1]),
-                'batch_sizes': ensure_list(scenario.get('batch_size'), [256])
             }
             if for_script_gen:
                 scenario_params_for_script_gen.append(params)
@@ -136,15 +135,15 @@ class BenchmarkRunner:
             if dataset_name == 'random' and dataset_name_ != 'random':
                 logger.warning('Benchmark with non-random dataset might have issues with prefix-caching settings.')
 
-            for rate, batch, num_iter, num_prompts_val, in_len, out_len, conc in itertools.product(
-                    params['request_rates'], params['batch_sizes'], params['num_iterations'],
+            for rate, num_iter, num_prompts_val, in_len, out_len, conc in itertools.product(
+                    params['request_rates'], params['num_iterations'],
                     params['num_prompts'], params['input_lengths'], params['output_lengths'],
                     params['concurrencies']):
                 num_prompts_final = conc * num_iter if 'num_iteration' in scenario else num_prompts_val
                 test_plans.append({
                     'request_rate': rate, 'concurrency': conc, 'input_length': in_len,
                     'output_length': out_len, 'num_prompts': num_prompts_final,
-                    'batch_size': batch, 'dataset_name': dataset_name_
+                    'dataset_name': dataset_name_
                 })
         if for_script_gen:
             return test_args, scenario_params_for_script_gen
@@ -160,27 +159,65 @@ class BenchmarkRunner:
         if self.script_generator:
             self.server.generate_script(self.script_generator)
 
-            # Re-create loop parameters for nested loop generation
-            _, scenario_params = self._load_test_plan(for_script_gen=True)
-            loop_params = {}
-            param_keys = [
-                'request_rates', 'concurrencies', 'input_lengths', 'output_lengths',
-                'num_prompts', 'batch_sizes', 'dataset_name'
-            ]
-            # Initialize loop_params with empty lists
-            for key in param_keys:
-                loop_params[key] = []
+            # Get the original scenario parameters for nested loop generation
+            test_args_gen, scenario_params = self._load_test_plan(for_script_gen=True)
 
-            if scenario_params:
-                # This assumes test_plans are generated in the same order
-                for plan in test_plans:
-                    loop_params['request_rates'].append(plan['request_rate'])
-                    loop_params['concurrencies'].append(plan['concurrency'])
-                    loop_params['input_lengths'].append(plan['input_length'])
-                    loop_params['output_lengths'].append(plan['output_length'])
-                    loop_params['num_prompts'].append(plan['num_prompts'])
-                    loop_params['batch_sizes'].append(plan['batch_size'])
-                    loop_params['dataset_name'].append(plan['dataset_name'])
+            # Combine all scenario parameters into a single set of loop parameters
+            # This will create nested loops with all unique values
+            loop_params = {
+                'request_rates': [],
+                'concurrencies': [],
+                'input_lengths': [],
+                'output_lengths': [],
+                'num_prompts': [],
+                'dataset_name': []
+            }
+
+            # Collect unique values from all scenarios
+            for params in scenario_params:
+                # Add request_rates
+                for val in params.get('request_rates', []):
+                    if val not in loop_params['request_rates']:
+                        loop_params['request_rates'].append(val)
+
+                # Add concurrencies
+                for val in params.get('concurrencies', []):
+                    if val not in loop_params['concurrencies']:
+                        loop_params['concurrencies'].append(val)
+
+                # Add input_lengths
+                for val in params.get('input_lengths', []):
+                    if val not in loop_params['input_lengths']:
+                        loop_params['input_lengths'].append(val)
+
+                # Add output_lengths
+                for val in params.get('output_lengths', []):
+                    if val not in loop_params['output_lengths']:
+                        loop_params['output_lengths'].append(val)
+
+                # Calculate num_prompts from num_iterations and concurrencies
+                num_iterations = params.get('num_iterations', [1])
+                concurrencies = params.get('concurrencies', [1])
+                num_prompts_raw = params.get('num_prompts', [1])
+
+                # If num_iterations is specified, calculate num_prompts
+                if len(num_iterations) > 1 or num_iterations[0] != 1:
+                    for conc in concurrencies:
+                        for num_iter in num_iterations:
+                            val = conc * num_iter
+                            if val not in loop_params['num_prompts']:
+                                loop_params['num_prompts'].append(val)
+                else:
+                    for val in num_prompts_raw:
+                        if val not in loop_params['num_prompts']:
+                            loop_params['num_prompts'].append(val)
+
+            # Add dataset_name from test_plans since it's not in scenario_params
+            for plan in test_plans:
+                dataset = plan.get('dataset_name', 'random')
+                if dataset not in loop_params['dataset_name']:
+                    loop_params['dataset_name'].append(dataset)
+
             # Use the first test plan to generate a template client command.
             # The client will now return the command list instead of None.
             command_template = None
@@ -248,7 +285,7 @@ class BenchmarkRunner:
     def _print_result(self, metrics: Dict[str, float], **kwargs): # pyright: ignore
         values = [
             Path(self.server.model_config).stem, str(self.server.parallel_size.get('tp', '1')),
-            str(kwargs.get('request_rate')), str(kwargs.get('num_prompts')), str(kwargs.get('batch_size')), str(kwargs.get('concurrency')), str(kwargs.get('input_length')), str(kwargs.get('output_length')), f"{metrics['test_time_s']:.2f}",
+            str(kwargs.get('request_rate')), str(kwargs.get('num_prompts')), str(kwargs.get('concurrency')), str(kwargs.get('input_length')), str(kwargs.get('output_length')), f"{metrics['test_time_s']:.2f}",
             f"{metrics['ttft_mean_ms']:.2f}", f"{metrics['ttft_median_ms']:.2f}", f"{metrics['ttft_p99_ms']:.2f}",
             f"{metrics['tpot_mean_ms']:.2f}", f"{metrics['tpot_median_ms']:.2f}", f"{metrics['tpot_p99_ms']:.2f}",
             f"{metrics['itl_mean_ms']:.2f}", f"{metrics['itl_median_ms']:.2f}", f"{metrics['itl_p99_ms']:.2f}",

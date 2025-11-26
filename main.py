@@ -85,8 +85,9 @@ def main():
         script_generator = None
         if args.generate_script:
             args.dry_run = True  # --generate-script implies --dry-run
-            script_path = Path(f"run_benchmark_{args.backend}_{args.model_config}").with_suffix(".sh")
-            script_generator = ScriptGenerator(output_path=script_path)
+            model_config_name = Path(args.model_config).stem
+            script_path = Path(f"tests/generated/run-{model_config_name}-{args.test_plan}.sh")
+            script_generator = ScriptGenerator(output_path=script_path, in_container=args.in_container)
 
         envs = parse_env_file(args.env_file) if args.env_file else {}
 

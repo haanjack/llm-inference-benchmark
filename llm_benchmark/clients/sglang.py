@@ -31,7 +31,6 @@ class SGLangClient(BenchmarkClientBase):
         input_length = kwargs.get("input_length")
         output_length = kwargs.get("output_length")
         num_prompts = kwargs.get("num_prompts")
-        batch_size = kwargs.get("batch_size")
         dataset_name = kwargs.get('dataset_name')
 
         use_script_vars = self.script_generator is not None

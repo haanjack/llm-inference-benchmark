@@ -29,7 +29,6 @@ class VLLMClient(BenchmarkClientBase):
         input_length = kwargs.get('input_length')
         output_length = kwargs.get('output_length')
         num_prompts = kwargs.get('num_prompts')
-        batch_size = kwargs.get('batch_size')
         dataset_name = kwargs.get('dataset_name')
 
         # check vllm bench support dataset
@@ -46,6 +45,7 @@ class VLLMClient(BenchmarkClientBase):
         output_length_val = f"${{OUTPUT_LENGTH}}" if use_script_vars else str(output_length)
         model_path_val = "$MODEL_PATH" if use_script_vars else self.server.get_model_path()
         request_rate_val = f"${{REQUEST_RATE}}" if use_script_vars else (str(request_rate) if request_rate > 0 else 'inf')
+        dataset_name_val = f"${{DATASET_NAME}}" if use_script_vars else dataset_name
 
         cmd = []
         if not self.server.in_container:
@@ -58,12 +58,16 @@ class VLLMClient(BenchmarkClientBase):
                     client_image,
                 ])
             else:
-                cmd.extend([self.server.container_runtime, "exec", self.server.container_name])
+                container_name_val = "$CONTAINER_NAME" if use_script_vars else self.server.container_name
+                cmd.extend([self.server.container_runtime, "exec"])
+                # Environment variables are already set in the container from docker run
+                # No need to pass them again with -e flags
+                cmd.append(container_name_val)
         cmd.extend([
             "vllm", "bench", "serve",
             "--model", model_path_val,
             "--backend", "vllm", "--host", self.server.addr, "--port", str(self.server.port),
-            "--dataset-name", dataset_name,
+            "--dataset-name", dataset_name_val,
             "--ignore-eos",
             "--trust-remote-code",
             "--request-rate", request_rate_val,
@@ -90,11 +94,8 @@ class VLLMClient(BenchmarkClientBase):
                     cmd.extend(['--dataset-path', value])
 
         if self.script_generator:
-            # In script generation mode, we only need to process one command template.
-            # The script_generator will handle the loop.
-            formatted_cmd = self.script_generator._format_command(cmd)
-            self.script_generator.script_parts["client_cmds"].append("    " + " \\\n        ".join(formatted_cmd))
-            return None # Don't return the command itself
+            # In script generation mode, return the command template for the loop
+            return cmd
 
         if self._is_dry_run:
             logger.info("Dry run - Benchmark command: %s", " ".join(cmd))
@@ -106,10 +107,10 @@ class VLLMClient(BenchmarkClientBase):
             return existing_results
 
         # Run the benchmark and log output
-        log_file = self._log_dir / self.server.exp_tag / f"r{request_rate}_n{num_prompts}_b{batch_size}_{input_length}_o{output_length}_c{concurrency}.log"
+        log_file = self._log_dir / self.server.exp_tag / f"r{request_rate}_n{num_prompts}_{input_length}_o{output_length}_c{concurrency}.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with open(log_file, 'w', encoding='utf-8') as f:
-            f.write(f"=== Benchmark: request_rate: {request_rate}, num_prompts: {num_prompts}, batch_size, {batch_size}, concurrency: {concurrency}, isl: {input_length}, osl: {output_length} ===\n")
+            f.write(f"=== Benchmark: request_rate: {request_rate}, num_prompts: {num_prompts}, concurrency: {concurrency}, isl: {input_length}, osl: {output_length} ===\n")
             f.write(f"Command: {' '.join(cmd)}\n\n")
             f.flush()
 

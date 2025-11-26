@@ -8,14 +8,15 @@ logger = logging.getLogger(__name__)
 class ScriptGenerator:
     """Generates a bash script for running the benchmark."""
 
-    def __init__(self, output_path: Path):
+    def __init__(self, output_path: Path, in_container: bool = False):
         self.output_path = output_path
+        self.in_container = in_container
         self.script_parts = {
             "header": ["#!/bin/bash", "# Auto-generated benchmark script", ""],
             "variables": ["# Benchmark Variables"],
             "server_cmd": ["# Start Server Command"],
             "wait_cmd": ["# Wait for Server to be Ready"],
-            "server_env_vars": ["# Server Environment Variables"],
+            "server_env_vars": ["# Server Environment Variables"] if in_container else [],
             "client_loop": [],
             "client_cmds": [],
             "client_loop_end": [],
@@ -27,8 +28,9 @@ class ScriptGenerator:
         self.script_parts["variables"].append(f'{name}="{value}"')
 
     def add_env_variable(self, name: str, value: Any):
-        """Adds an environment variable to the script."""
-        self.script_parts["server_env_vars"].append(f'export {name}="{value}"')
+        """Adds an environment variable to the script (only for in_container mode)."""
+        if self.in_container:
+            self.script_parts["server_env_vars"].append(f'export {name}="{value}"')
 
     def set_server_command(self, command: List[str]):
         """Sets the server start command."""
@@ -38,13 +40,21 @@ class ScriptGenerator:
         self.script_parts["server_cmd"].append("trap 'kill $SERVER_PID' EXIT") # Cleanup on exit
 
     def set_wait_command(self, port: int):
-        """Sets the command to wait for the server port."""
+        """Sets the command to wait for the server port with progress reporting."""
         wait_script = [
             f"echo 'Waiting for server on port {port}...'",
+            "START_TIME=$SECONDS",
+            "LAST_REPORT=0",
             f"while ! nc -z localhost {port}; do",
-            "  sleep 1",
+            "  sleep 5",
+            "  ELAPSED=$((SECONDS - START_TIME))",
+            "  if [ $((ELAPSED - LAST_REPORT)) -ge 60 ]; then",
+            "    echo \"Still waiting... $((ELAPSED / 60)) minute(s) $((ELAPSED % 60)) second(s) elapsed\"",
+            "    LAST_REPORT=$ELAPSED",
+            "  fi",
             "done",
-            "echo 'Server is ready.'",
+            "TOTAL_TIME=$((SECONDS - START_TIME))",
+            "echo \"Server is ready! (took $((TOTAL_TIME / 60))m $((TOTAL_TIME % 60))s)\"",
             ""
         ]
         self.script_parts["wait_cmd"].extend(wait_script)
@@ -74,19 +84,49 @@ class ScriptGenerator:
         return formatted_command
 
     def set_client_loop(self, loop_params: Dict[str, List[Any]], command_template: List[str]):
-        """Builds the nested client benchmark loop with the command."""
+        """Builds nested client benchmark loops with the command."""
         self.script_parts["client_loop"].append("\n# Benchmark Loop")
 
-        for param, values in loop_params.items():
-            var_name = param.upper() + "_LIST"
-            self.script_parts["client_loop"].append(f'{var_name}=({" ".join(map(str, values))})')
+        # Mapping from plural parameter names to singular variable names used in commands
+        param_to_var_map = {
+            'request_rates': 'REQUEST_RATE',
+            'concurrencies': 'CONCURRENCY',
+            'input_lengths': 'INPUT_LENGTH',
+            'output_lengths': 'OUTPUT_LENGTH',
+            'num_prompts': 'NUM_PROMPTS',
+            'dataset_name': 'DATASET_NAME'
+        }
 
-        self.script_parts["client_loop"].append("for i in ${!REQUEST_RATE_LIST[@]}; do")
-        for param in loop_params.keys():
-            self.script_parts["client_loop"].append(f"    {param.upper()}=${{{param.upper()}_LIST[i]}}")
+        # Define the order for nested loops (most to least significant)
+        param_order = ['request_rates', 'num_prompts', 'input_lengths', 'output_lengths', 'concurrencies', 'dataset_name']
 
-        # The client command will be added separately
-        self.script_parts["client_loop_end"].append("done")
+        # Filter to only include params that exist in loop_params
+        params_to_loop = [p for p in param_order if p in loop_params]
+
+        # Build nested for loops
+        indent_level = 0
+        for param in params_to_loop:
+            values = loop_params[param]
+            var_name = param_to_var_map.get(param, param.upper())
+
+            # Convert values to strings, handling strings specially
+            str_values = [f'"{v}"' if isinstance(v, str) else str(v) for v in values]
+
+            indent = "    " * indent_level
+            self.script_parts["client_loop"].append(f"{indent}for {var_name} in {' '.join(str_values)}; do")
+            indent_level += 1
+
+        # Add the client command inside all the loops
+        indent = "    " * indent_level
+        formatted_cmd = self._format_command(command_template)
+        self.script_parts["client_loop"].append("")
+        self.script_parts["client_loop"].append(indent + (" \\\n" + indent + "    ").join(formatted_cmd))
+
+        # Close all loops
+        for i in range(len(params_to_loop)):
+            indent_level -= 1
+            indent = "    " * indent_level
+            self.script_parts["client_loop_end"].append(f"{indent}done")
 
     def generate(self):
         """Writes the generated script to the output file."""

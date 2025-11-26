@@ -41,11 +41,10 @@ class BenchmarkClientBase(ABC):
         """Constructs the log file path from benchmark parameters."""
         request_rate = kwargs.get("request_rate")
         num_prompts = kwargs.get("num_prompts")
-        batch_size = kwargs.get("batch_size")
         input_length = kwargs.get("input_length")
         output_length = kwargs.get("output_length")
         concurrency = kwargs.get("concurrency")
-        return self._log_dir / self.server.exp_tag / f"r{request_rate}_n{num_prompts}_b{batch_size}_{input_length}_o{output_length}_c{concurrency}.log"
+        return self._log_dir / self.server.exp_tag / f"r{request_rate}_n{num_prompts}_{input_length}_o{output_length}_c{concurrency}.log"
 
     def _check_existing_result(self, **kwargs) -> Dict[str, float] | None:
         """Check if a benchmark result already exists."""
@@ -77,7 +76,7 @@ class BenchmarkClientBase(ABC):
     def _save_results(self, metrics: Dict[str, float], **kwargs):
         result_line = ( # pyright: ignore
             f"{Path(self.server.model_config).stem},{self.server.parallel_size.get('tp', '1')},"
-            f"{kwargs.get('request_rate')},{kwargs.get('num_prompts')},{kwargs.get('batch_size')},{kwargs.get('concurrency')},{kwargs.get('input_length')},{kwargs.get('output_length')},{metrics['test_time_s']:.2f},"
+            f"{kwargs.get('request_rate')},{kwargs.get('num_prompts')},{kwargs.get('concurrency')},{kwargs.get('input_length')},{kwargs.get('output_length')},{metrics['test_time_s']:.2f},"
             f"{metrics['ttft_mean_ms']:.2f},{metrics['ttft_median_ms']:.2f},{metrics['ttft_p99_ms']:.2f},"
             f"{metrics['tpot_mean_ms']:.2f},{metrics['tpot_median_ms']:.2f},{metrics['tpot_p99_ms']:.2f},"
             f"{metrics['itl_mean_ms']:.2f},{metrics['itl_median_ms']:.2f},{metrics['itl_p99_ms']:.2f},"

@@ -5,4 +5,3 @@ test_scenarios:
     input_length: 512
     output_length: 128
     num_iteration: 4
-    batch_size: 256

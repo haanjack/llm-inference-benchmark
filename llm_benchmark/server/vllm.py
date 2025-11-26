@@ -260,6 +260,9 @@ class VLLMServer(BenchmarkBase):
         """Generates the vLLM server start command for the script."""
         super().generate_script(generator)
         no_enable_prefix_caching = self._load_test_plan()
-        server_cmd = self.get_server_run_cmd(no_enable_prefix_caching)
+        if not self._in_container:
+            server_cmd = self.get_server_run_cmd(no_enable_prefix_caching)
+        else:
+            server_cmd = self.get_server_run_cmd_direct(no_enable_prefix_caching)
         generator.set_server_command(server_cmd)
         generator.set_wait_command(self.port)

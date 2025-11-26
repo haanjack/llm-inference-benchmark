@@ -113,10 +113,7 @@ test_scenarios:
     input_length: 1024
     output_length: 1024
     num_iteration: 8
-    batch_size: 256
 ```
-
-`batch_size` means vllm engine's batch size and it is `max-num-seqs` in vllm.
 
 There are several test cases in `configs/benchmark_plans`.
  - [test](./configs/benchmark_plans/test.yaml)
@@ -140,9 +137,9 @@ There are multiple methods to specify benchmark model path for `--model-path`.
 
 ## Benchmark Result
 
-For all the benchmark results are parsed from each benchmark log and consolidated in `logs/<model name>/<docker-tag>/result_list.csv` file.
+For all the benchmark results are parsed from each benchmark log and consolidated in `logs/<model name>/<docker-tag>/results_<server>_<client>.csv` file.
 
-This is an exmaple of the `result_list.csv` file.
+This is an exmaple of the `results_<server>_<client>.csv` file.
 ```csv
 env,TP Size,Request Rate,Num. Iter,Client Count,MaxNumSeqs,Input Length,Output Length,Test Time,Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),Mean ITL (ms),Median ITL (ms),P99 ITL (ms),Mean E2EL (ms),Median E2EL (ms),P99 E2EL (ms),Request Throughput (req/s),Output token throughput (tok/s),Total Token throughput (tok/s)
 default,1,0,4,256,4,512,128,2.32,31.75,35.30,36.81,4.30,4.28,4.39,4.30,4.27,4.75,577.79,578.79,580.43,6.91,884.27,4414.46

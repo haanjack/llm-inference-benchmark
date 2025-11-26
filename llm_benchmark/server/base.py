@@ -68,7 +68,7 @@ class BenchmarkBase:
         if not self.in_container:
             self._container_runtime = "docker" if self._is_docker_available() else "podman"
             self._container_name = self._setup_container_name()
-            self._setup_logging_dirs()
+        self._setup_logging_dirs()
 
         if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model at {self._model_name} in {self.get_model_path()}.")
@@ -144,8 +144,8 @@ class BenchmarkBase:
 
         for key in self._common_envs:
             cmd.extend(["-e", f"{key}={self._common_envs[key]}"])
-        for key in self._env_vars:
-            cmd.extend(["-e", key])
+        for key, value in self._env_vars.items():
+            cmd.extend(["-e", f"{key}={value}"])
 
         return cmd
 
@@ -404,6 +404,8 @@ class BenchmarkBase:
         if hasattr(self, '_parallel_size'):
             generator.add_variable("TP_SIZE", self.parallel_size.get("tp", 1))
         generator.add_variable("PORT", self.port)
+        if hasattr(self, '_container_name'):
+            generator.add_variable("CONTAINER_NAME", self._container_name)
 
         for key, value in self._env_vars.items():
             generator.add_env_variable(key, value)

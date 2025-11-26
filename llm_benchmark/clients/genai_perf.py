@@ -34,7 +34,6 @@ class GenAIPerfClient(BenchmarkClientBase):
         input_length = kwargs.get('input_length')
         output_length = kwargs.get('output_length')
         num_prompts = kwargs.get('num_prompts')
-        batch_size = kwargs.get('batch_size')
         dataset_name = kwargs.get('dataset_name')
 
         log_file = self._get_log_path(**kwargs)
@@ -89,7 +88,7 @@ class GenAIPerfClient(BenchmarkClientBase):
             return existing_results
 
         with open(log_file, 'w', encoding='utf-8') as f:
-            f.write(f"=== Benchmark: {request_rate}, {num_prompts}, {batch_size}, {concurrency}, {input_length}, {output_length} ===\n")
+            f.write(f"=== Benchmark: {request_rate}, {num_prompts}, {concurrency}, {input_length}, {output_length} ===\n")
             f.write(f"Command: {' '.join(cmd)}\n\n")
             f.flush()
             subprocess.run(cmd, stdout=f, stderr=f, check=True)
