@@ -157,50 +157,55 @@ class BenchmarkRunner:
         test_args, test_plans = self._load_test_plan()
 
         if self.script_generator:
-            self.server.generate_script(self.script_generator)
-
-            # Get the original scenario parameters for nested loop generation
+            # Get scenario information for script generation
             test_args_gen, scenario_params = self._load_test_plan(for_script_gen=True)
 
-            # Combine all scenario parameters into a single set of loop parameters
-            # This will create nested loops with all unique values
-            loop_params = {
-                'request_rates': [],
-                'concurrencies': [],
-                'input_lengths': [],
-                'output_lengths': [],
-                'num_prompts': [],
-                'dataset_name': []
-            }
+            # Load scenarios with their names
+            with open(self._test_plan_path, 'r') as f:
+                config = yaml.safe_load(f)
 
-            # Collect unique values from all scenarios
-            for params in scenario_params:
-                # Add request_rates
-                for val in params.get('request_rates', []):
-                    if val not in loop_params['request_rates']:
-                        loop_params['request_rates'].append(val)
+            scenarios_with_names = []
+            for scenario in config.get('test_scenarios', []):
+                if self._sub_tasks and scenario.get('name') not in self._sub_tasks:
+                    continue
+                scenarios_with_names.append(scenario)
 
-                # Add concurrencies
-                for val in params.get('concurrencies', []):
-                    if val not in loop_params['concurrencies']:
-                        loop_params['concurrencies'].append(val)
+            # Generate separate script for each scenario
+            for idx, scenario in enumerate(scenarios_with_names):
+                scenario_name = scenario.get('name', f'scenario_{idx}')
+                logger.info(f"Generating script for scenario: {scenario_name}")
 
-                # Add input_lengths
-                for val in params.get('input_lengths', []):
-                    if val not in loop_params['input_lengths']:
-                        loop_params['input_lengths'].append(val)
+                # Create a new ScriptGenerator for this scenario with scenario name in filename
+                base_path = self.script_generator.output_path
+                scenario_script_path = base_path.parent / f"{base_path.stem}-{scenario_name}{base_path.suffix}"
 
-                # Add output_lengths
-                for val in params.get('output_lengths', []):
-                    if val not in loop_params['output_lengths']:
-                        loop_params['output_lengths'].append(val)
+                from llm_benchmark.utils.script_generator import ScriptGenerator
+                scenario_generator = ScriptGenerator(
+                    output_path=scenario_script_path,
+                    in_container=self.script_generator.in_container
+                )
+
+                # Generate server command for this script
+                self.server.generate_script(scenario_generator)
+
+                # Get parameters for just this scenario
+                params = scenario_params[idx]
+
+                # Create loop parameters from this single scenario
+                loop_params = {
+                    'request_rates': params.get('request_rates', []),
+                    'concurrencies': params.get('concurrencies', []),
+                    'input_lengths': params.get('input_lengths', []),
+                    'output_lengths': params.get('output_lengths', []),
+                    'num_prompts': [],
+                    'dataset_name': [scenario.get('dataset_name', 'random')]
+                }
 
                 # Calculate num_prompts from num_iterations and concurrencies
                 num_iterations = params.get('num_iterations', [1])
                 concurrencies = params.get('concurrencies', [1])
                 num_prompts_raw = params.get('num_prompts', [1])
 
-                # If num_iterations is specified, calculate num_prompts
                 if len(num_iterations) > 1 or num_iterations[0] != 1:
                     for conc in concurrencies:
                         for num_iter in num_iterations:
@@ -212,36 +217,29 @@ class BenchmarkRunner:
                         if val not in loop_params['num_prompts']:
                             loop_params['num_prompts'].append(val)
 
-            # Add dataset_name from test_plans since it's not in scenario_params
-            for plan in test_plans:
-                dataset = plan.get('dataset_name', 'random')
-                if dataset not in loop_params['dataset_name']:
-                    loop_params['dataset_name'].append(dataset)
+                # Generate template client command using first test plan for this scenario
+                command_template = None
+                scenario_test_plans = [p for p in test_plans
+                                     if (p.get('input_length') in loop_params['input_lengths'] and
+                                         p.get('output_length') in loop_params['output_lengths'])]
+                if scenario_test_plans:
+                    command_template = self.client.run_single_benchmark(test_args, **scenario_test_plans[0])
 
-            # Use the first test plan to generate a template client command.
-            # The client will now return the command list instead of None.
-            command_template = None
-            if test_plans:
-                command_template = self.client.run_single_benchmark(test_args, **test_plans[0])
+                if command_template:
+                    scenario_generator.set_client_loop(loop_params, command_template)
 
-            if command_template:
-                self.script_generator.set_client_loop(loop_params, command_template)
+                scenario_generator.generate()
 
-            self.script_generator.generate()
             logger.info("Script generation complete. Exiting.")
             return
 
+        # Normal execution mode (not generating scripts)
         try:
             self._print_header()
             self._run_benchmark(test_args, test_plans)
         finally:
             self.server.cleanup()
-            if not self._is_dry_run and not self.server.in_container:
-                if self.script_generator:
-                    self.script_generator.generate()
-                    logger.info("Script generation complete.")
-                    return
-
+            if not self._is_dry_run:
                 logger.info("Benchmarking complete. Results saved to %s", self.client.results_file)
 
     def _print_header(self):

@@ -202,6 +202,37 @@ python run_vllm_benchmark.py \
 
 
 ## Other Features
+
+### Generate Standalone Scripts
+
+You can generate self-contained benchmark scripts that can be shared with others:
+
+```bash
+# Generate a script for your benchmark configuration
+python main.py \
+    --model-config configs/models/default-vllm.yaml \
+    --model-path-or-id Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
+    --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103 \
+    --backend vllm \
+    --benchmark-client vllm \
+    --test-plan test \
+    --gpu-devices 0 \
+    --generate-script
+
+# Generate specific scenarios only
+python main.py ... --test-plan sample --sub-tasks 1k1k 8k1k --generate-script
+
+# Make the script more shareable by prettifying it
+python scripts/pretty_generated_script.py tests/generated/run-default-vllm-test.sh
+```
+
+The prettified script:
+- Replaces hardcoded paths with `$HOME` variable for portability
+- Extracts test parameters into clear variables at the top
+- Removes internal cache mounts
+- Adds helpful documentation comments
+- Makes it easy to customize and share
+
 ### Manual test
 To ease various testing, this script provides `--dry-run` mode. With this option, benchmark script prints out the command which will be used in the benchmark. You can copy the output and start own test.
 
