@@ -1,0 +1,29 @@
+envs:
+  SGLANG_USE_AITER: 1
+
+arch_specific_params: # SGLang specific architecture parameters can be added here.
+
+server_args:
+  # SGLang specific arguments
+  log-level: "info"
+  mem-fraction-static: 0.9
+  # disable-raix-cache: true
+  # chunked-prefill-size: 196608
+  # max-prefill-tokens: 196608
+  # num-continuous-decode-steps: 4
+  # cuda-graph-max-bs: 128
+
+parallel:
+  2:
+    # tp=2
+    tensor-parallel-size: 2
+  4:
+    # tp=4
+    tensor-parallel-size: 4
+  8:
+    # tp=8
+    tensor-parallel-size: 8
+
+compilation_config:
+  # SGLang specific compilation config can be added here.
+
