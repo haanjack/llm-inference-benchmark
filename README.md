@@ -223,7 +223,8 @@ python main.py \
 python main.py ... --test-plan sample --sub-tasks 1k1k 8k1k --generate-script
 
 # Make the script more shareable by prettifying it
-python scripts/pretty_generated_script.py tests/generated/run-default-vllm-test.sh
+python scripts/generated_script_prettifier.py scripts/generated/run-default-vllm-test-<sub-task>.sh
+
 ```
 
 The prettified script:

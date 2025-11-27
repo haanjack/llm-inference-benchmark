@@ -29,20 +29,20 @@ class BenchmarkRunner:
         self.script_generator = script_generator
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._columns = [
-            ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11),
-            ("Batch", 8), ("Conc", 8), ("In Len", 8), ("Out Len", 8),
-            ("Test Time(s)", 10), ("TTFT Mean(ms)", 10), ("TTFT Med(ms)", 10), ("TTFT P99(ms)", 10),
-            ("TPOT Mean(ms)", 10), ("TPOT Med(ms)", 10), ("TPOT P99(ms)", 10),
-            ("ITL Mean(ms)", 10), ("ITL Med(ms)", 10), ("ITL P99(ms)", 10),
-            ("E2E Mean(ms)", 10), ("E2E Med(ms)", 10), ("E2E P99(ms)", 10),
-            ("Req req/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10)
+            ("Model Config", 16), ("TP", 8), ("Req Rate", 8), ("Num Prompts", 11), # 4
+            ("Conc", 8), ("In Len", 8), ("Out Len", 8), # 7
+            ("Test Time(s)", 10), ("TTFT Mean(ms)", 10), ("TTFT Med(ms)", 10), ("TTFT P99(ms)", 10), # 11
+            ("TPOT Mean(ms)", 10), ("TPOT Med(ms)", 10), ("TPOT P99(ms)", 10), # 14
+            ("ITL Mean(ms)", 10), ("ITL Med(ms)", 10), ("ITL P99(ms)", 10), # 17
+            ("E2E Mean(ms)", 10), ("E2E Med(ms)", 10), ("E2E P99(ms)", 10), # 20
+            ("Req req/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10) # 23
         ]
         self._csv_headers = [
-            "model_config", "tp_size", "request_rate", "num_prompts", "concurrency",
-            "input_length", "output_length", "test_time_s", "ttft_mean_ms", "ttft_median_ms",
-            "ttft_p99_ms", "tpot_mean_ms", "tpot_median_ms", "tpot_p99_ms", "itl_mean_ms",
-            "itl_median_ms", "itl_p99_ms", "e2el_mean_ms", "e2el_median_ms", "e2el_p99_ms",
-            "request_throughput_rps", "output_token_throughput_tps", "total_token_throughput_tps"
+            "model_config", "tp_size", "request_rate", "num_prompts", "concurrency", # 5
+            "input_length", "output_length", "test_time_s", "ttft_mean_ms", "ttft_median_ms", # 10
+            "ttft_p99_ms", "tpot_mean_ms", "tpot_median_ms", "tpot_p99_ms", "itl_mean_ms", # 15
+            "itl_median_ms", "itl_p99_ms", "e2el_mean_ms", "e2el_median_ms", "e2el_p99_ms", # 20
+            "request_throughput_rps", "output_token_throughput_tps", "total_token_throughput_tps" # 23
         ]
         self._setup_logging_dirs()
         if not self._test_plan_path.exists() and not self._is_dry_run:
@@ -77,7 +77,6 @@ class BenchmarkRunner:
     def _load_test_plan(self, for_script_gen: bool = False):
         with open(self._test_plan_path, mode="r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-        dataset_name = config.get('dataset_name', 'random')
 
         def ensure_list(value, default):
             if value is None:
@@ -105,6 +104,10 @@ class BenchmarkRunner:
                 )
             test_args.update(loaded_args)
 
+        # default benchmark dataset is random
+        if 'dataset_name' not in test_args:
+            test_args['dataset_name'] = 'random'
+
         # benchmark sweep
         test_plans = []
         scenario_params_for_script_gen = []
@@ -125,31 +128,36 @@ class BenchmarkRunner:
                 'output_lengths': ensure_list(scenario.get('output_length'), [128]),
                 'num_iterations': ensure_list(scenario.get('num_iteration'), [8 if 'num_prompts' not in scenario else 1]),
                 'num_prompts': ensure_list(scenario.get('num_prompts'), [1000 if 'num_iteration' not in scenario else 1]),
+                'dataset_names': ensure_list(scenario.get('dataset_name', [test_args['dataset_name']]), [test_args['dataset_name']])
             }
             if for_script_gen:
                 scenario_params_for_script_gen.append(params)
                 continue
 
-            dataset_name_ = scenario.get('dataset_name', dataset_name)
-
-            if dataset_name == 'random' and dataset_name_ != 'random':
+            # warn if mixing with random dataset and non-random dataset
+            if test_args['dataset_name'] == 'random' and params['dataset_names'] != ['random']:
                 logger.warning('Benchmark with non-random dataset might have issues with prefix-caching settings.')
 
-            for rate, num_iter, num_prompts_val, in_len, out_len, conc in itertools.product(
+            for rate, num_iter, num_prompts_val, in_len, out_len, conc, dataset_name in itertools.product(
                     params['request_rates'], params['num_iterations'],
                     params['num_prompts'], params['input_lengths'], params['output_lengths'],
-                    params['concurrencies']):
+                    params['concurrencies'], params['dataset_names']):
                 num_prompts_final = conc * num_iter if 'num_iteration' in scenario else num_prompts_val
                 test_plans.append({
                     'request_rate': rate, 'concurrency': conc, 'input_length': in_len,
                     'output_length': out_len, 'num_prompts': num_prompts_final,
-                    'dataset_name': dataset_name_
+                    'dataset_name': dataset_name
                 })
         if for_script_gen:
             return test_args, scenario_params_for_script_gen
 
         if not test_plans:
             raise ValueError("No test scenarios loaded.")
+
+        # Remove dataset_name from test_args to avoid duplication in benchmark clients
+        # It's already included in each test_plan
+        if 'dataset_name' in test_args:
+            del test_args['dataset_name']
 
         return test_args, test_plans
 
@@ -158,10 +166,10 @@ class BenchmarkRunner:
 
         if self.script_generator:
             # Get scenario information for script generation
-            test_args_gen, scenario_params = self._load_test_plan(for_script_gen=True)
+            _, scenario_params = self._load_test_plan(for_script_gen=True)
 
             # Load scenarios with their names
-            with open(self._test_plan_path, 'r') as f:
+            with open(self._test_plan_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
 
             scenarios_with_names = []
@@ -173,13 +181,12 @@ class BenchmarkRunner:
             # Generate separate script for each scenario
             for idx, scenario in enumerate(scenarios_with_names):
                 scenario_name = scenario.get('name', f'scenario_{idx}')
-                logger.info(f"Generating script for scenario: {scenario_name}")
+                logger.info("Generating script for scenario: %s", scenario_name)
 
                 # Create a new ScriptGenerator for this scenario with scenario name in filename
                 base_path = self.script_generator.output_path
                 scenario_script_path = base_path.parent / f"{base_path.stem}-{scenario_name}{base_path.suffix}"
 
-                from llm_benchmark.utils.script_generator import ScriptGenerator
                 scenario_generator = ScriptGenerator(
                     output_path=scenario_script_path,
                     in_container=self.script_generator.in_container
@@ -274,7 +281,7 @@ class BenchmarkRunner:
 
     def _format_result_for_console(self, values: List[str]) -> str:
         if len(values) != len(self._columns): # pyright: ignore
-            logger.warning("Mismatch between result values and column definitions.")
+            logger.warning("Mismatch between result values and column definitions. {len(values)} values vs {len(self._columns)} columns.")
             return ' '.join(values)
         formatted_values = [os.path.basename(values[0]).ljust(self._columns[0][1])] # pyright: ignore
         formatted_values.extend(val.rjust(width) for val, (_, width) in zip(values[1:], self._columns[1:])) # pyright: ignore

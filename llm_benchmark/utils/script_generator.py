@@ -98,7 +98,7 @@ class ScriptGenerator:
         }
 
         # Define the order for nested loops (most to least significant)
-        param_order = ['request_rates', 'num_prompts', 'input_lengths', 'output_lengths', 'concurrencies', 'dataset_name']
+        param_order = ['dataset_name', 'num_prompts', 'request_rates', 'input_lengths', 'output_lengths', 'concurrencies']
 
         # Filter to only include params that exist in loop_params
         params_to_loop = [p for p in param_order if p in loop_params]
@@ -123,7 +123,7 @@ class ScriptGenerator:
         self.script_parts["client_loop"].append(indent + (" \\\n" + indent + "    ").join(formatted_cmd))
 
         # Close all loops
-        for i in range(len(params_to_loop)):
+        for _ in range(len(params_to_loop)):
             indent_level -= 1
             indent = "    " * indent_level
             self.script_parts["client_loop_end"].append(f"{indent}done")
@@ -140,4 +140,4 @@ class ScriptGenerator:
             f.write("\n".join(script_content))
 
         self.output_path.chmod(0o755)
-        logger.info(f"Generated benchmark script: {self.output_path.resolve()}")
+        logger.info("Generated benchmark script: %s", self.output_path.resolve())

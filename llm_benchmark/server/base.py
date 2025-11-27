@@ -5,7 +5,7 @@ import time
 import sys
 from pathlib import Path
 from llm_benchmark.utils.script_generator import ScriptGenerator
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union
 import yaml
 import requests
 from urllib.parse import urlparse
@@ -136,7 +136,7 @@ class BenchmarkBase:
             "--shm-size=16gb",
             "--security-opt", "seccomp=unconfined",
             "-e", f"CUDA_VISIBLE_DEVICES={self._gpu_devices}",
-            "-v", f"{self._model_path}:{self.get_model_path()}:ro",
+            "-v", f"{self.get_host_model_path()}:{self.get_model_path()}:ro",
         ]
 
         if os.environ.get('HF_HOME'):
@@ -236,6 +236,10 @@ class BenchmarkBase:
         else:
             # model path is translated path in container
             return str(self._container_model_path)
+
+    def get_host_model_path(self) -> str:
+        """Get the host model path. Used for host mounts for container execution."""
+        return str(self._model_path)
 
     def _is_server_process_alive(self) -> bool:
         if self._is_dry_run:

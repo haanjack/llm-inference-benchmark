@@ -218,7 +218,7 @@ Examples:
     )
 
     parser.add_argument(
-        'input',
+        '-i', '--input',
         type=Path,
         help='Input benchmark script to prettify'
     )

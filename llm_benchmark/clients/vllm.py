@@ -1,9 +1,8 @@
 import logging
-import os
 import subprocess
 import re
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from llm_benchmark.clients.base import BenchmarkClientBase
 from llm_benchmark.server.vllm import VLLMServer
@@ -39,13 +38,13 @@ class VLLMClient(BenchmarkClientBase):
         use_script_vars = self.script_generator is not None
 
         # Use shell variables for script generation, otherwise use actual values.
-        concurrency_val = f"${{CONCURRENCY}}" if use_script_vars else str(concurrency)
-        num_prompts_val = f"${{NUM_PROMPTS}}" if use_script_vars else str(num_prompts)
-        input_length_val = f"${{INPUT_LENGTH}}" if use_script_vars else str(input_length)
-        output_length_val = f"${{OUTPUT_LENGTH}}" if use_script_vars else str(output_length)
+        concurrency_val = f"${{CONCURRENCY}}" if use_script_vars else str(concurrency) # pylint: disable=f-string-without-interpolation
+        num_prompts_val = f"${{NUM_PROMPTS}}" if use_script_vars else str(num_prompts) # pylint: disable=f-string-without-interpolation
+        input_length_val = f"${{INPUT_LENGTH}}" if use_script_vars else str(input_length) # pylint: disable=f-string-without-interpolation
+        output_length_val = f"${{OUTPUT_LENGTH}}" if use_script_vars else str(output_length) # pylint: disable=f-string-without-interpolation
         model_path_val = "$MODEL_PATH" if use_script_vars else self.server.get_model_path()
-        request_rate_val = f"${{REQUEST_RATE}}" if use_script_vars else (str(request_rate) if request_rate > 0 else 'inf')
-        dataset_name_val = f"${{DATASET_NAME}}" if use_script_vars else dataset_name
+        request_rate_val = f"${{REQUEST_RATE}}" if use_script_vars else (str(request_rate) if request_rate > 0 else 'inf') # pylint: disable=f-string-without-interpolation
+        dataset_name_val = f"${{DATASET_NAME}}" if use_script_vars else dataset_name # pylint: disable=f-string-without-interpolation
 
         cmd = []
         if not self.server.in_container:
@@ -54,7 +53,7 @@ class VLLMClient(BenchmarkClientBase):
                     self.server.container_runtime, "run", "--rm",
                     "--network=host",
                     "-v", f"{Path.cwd()}:{Path.cwd()}",
-                    "-v", f"{self.server._model_path}:{model_path_val}",
+                    "-v", f"{self.server.get_host_model_path()}:{model_path_val}",
                     client_image,
                 ])
             else:

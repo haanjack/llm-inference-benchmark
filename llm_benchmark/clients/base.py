@@ -1,10 +1,8 @@
 from abc import ABC, abstractmethod
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
 from pathlib import Path
 import pandas as pd
-import re
-import os
 
 from llm_benchmark.server import BenchmarkBase
 from llm_benchmark.utils.script_generator import ScriptGenerator
@@ -50,7 +48,6 @@ class BenchmarkClientBase(ABC):
         """Check if a benchmark result already exists."""
         log_file = self._get_log_path(**kwargs)
         if not log_file.exists():
-            logger.info("Log file %s does not exist", log_file)
             return None
 
         if not self.results_file.exists():
