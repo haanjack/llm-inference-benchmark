@@ -42,7 +42,7 @@ class SGLangClient(BenchmarkClientBase):
         request_rate_val = f"${{REQUEST_RATE}}" if use_script_vars else (str(request_rate) if request_rate > 0 else 'inf')
 
         cmd = []
-        if not self.server.in_container:
+        if not self.server.in_container or self.server.name != "sglang":
             if self.server.addr != "0.0.0.0":
                 cmd.extend([
                     self.server.container_runtime, "run", "--rm",

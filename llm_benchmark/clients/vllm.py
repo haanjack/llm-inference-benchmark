@@ -48,7 +48,7 @@ class VLLMClient(BenchmarkClientBase):
 
         cmd = []
         if not self.server.in_container:
-            if self.server.addr != "0.0.0.0":
+            if self.server.addr != "0.0.0.0" or self.server.name != "vllm":
                 cmd.extend([
                     self.server.container_runtime, "run", "--rm",
                     "--network=host",
