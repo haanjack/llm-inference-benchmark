@@ -205,16 +205,16 @@ def main():
         description='Prettify auto-generated benchmark scripts for sharing',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Prettify and save with -pretty suffix
-  %(prog)s tests/generated/run-llama-vllm-test.sh
+        Examples:
+        # Prettify and save with -prettified suffix
+        %(prog)s tests/generated/run-llama-vllm-test.sh
 
-  # Specify output file
-  %(prog)s tests/generated/run-llama-vllm-test.sh -o share/benchmark.sh
+        # Specify output file
+        %(prog)s tests/generated/run-llama-vllm-test.sh -o share/benchmark.sh
 
-  # Print to stdout
-  %(prog)s tests/generated/run-llama-vllm-test.sh --stdout
-        """
+        # Print to stdout
+        %(prog)s tests/generated/run-llama-vllm-test.sh --stdout
+                """
     )
 
     parser.add_argument(
@@ -226,7 +226,7 @@ Examples:
     parser.add_argument(
         '-o', '--output',
         type=Path,
-        help='Output file path (default: adds -pretty suffix to input)'
+        help='Output file path (default: adds -prettified suffix to input)'
     )
 
     parser.add_argument(
@@ -243,9 +243,9 @@ Examples:
     elif args.output:
         output_path = args.output
     else:
-        # Add -pretty suffix
+        # Add -prettified suffix
         stem = args.input.stem
-        output_path = args.input.parent / f"{stem}-pretty{args.input.suffix}"
+        output_path = args.input.parent / f"{stem}-prettified{args.input.suffix}"
 
     return prettify_script(args.input, output_path)
 

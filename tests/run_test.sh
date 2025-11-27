@@ -53,12 +53,6 @@ else
     backend="vllm"
 fi
 
-if [ "${benchmark_client}" == "genai-perf" ]; then
-    benchmark_client="genai-perf"
-else
-    benchmark_client="vllm"
-fi
-
 python3 main.py \
     --model-config $model_config \
     --model-path-or-id amd/Llama-3.1-8B-Instruct-FP8-KV \
