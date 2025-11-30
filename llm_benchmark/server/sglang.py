@@ -1,29 +1,24 @@
-
 import logging
 import os
 import subprocess
-import time
 from pathlib import Path
 from typing import List, Optional
-import requests
-import datetime
-import yaml
-import dotenv
-
 import random
 import string
+import requests
+import yaml
+
 
 from llm_benchmark.server.base import BenchmarkBase
 from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
+
 class SGLangServer(BenchmarkBase):
     """SGLang Server management."""
-    def __init__(self,
-                 test_plan: str,
-                 no_warmup: bool = False,
-                 **kwargs):
+
+    def __init__(self, test_plan: str, no_warmup: bool = False, **kwargs):
         super().__init__(name="sglang", **kwargs)
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._is_no_warmup = no_warmup
@@ -52,18 +47,29 @@ class SGLangServer(BenchmarkBase):
         use_script_vars = self.script_generator is not None
         image_val = "$IMAGE" if use_script_vars else self.image
         model_path_val = "$MODEL_PATH" if use_script_vars else self.get_model_path()
-        tp_size_val = "$TP_SIZE" if use_script_vars else str(self._parallel_size.get('tp', '1'))
+        tp_size_val = (
+            "$TP_SIZE" if use_script_vars else str(self._parallel_size.get("tp", "1"))
+        )
         port_val = "$PORT" if use_script_vars else str(self._port)
 
-        cmd.extend([
-            "-v", f"{self._host_cache_dir}:/root/.cache",
-            image_val,
-            "python", "-m", "sglang.launch_server",
-            "--model-path", model_path_val,
-            "--host", "0.0.0.0",
-            "--port", port_val,
-            "--tensor-parallel-size", tp_size_val,
-        ])
+        cmd.extend(
+            [
+                "-v",
+                f"{self._host_cache_dir}:/root/.cache",
+                image_val,
+                "python",
+                "-m",
+                "sglang.launch_server",
+                "--model-path",
+                model_path_val,
+                "--host",
+                "0.0.0.0",
+                "--port",
+                port_val,
+                "--tensor-parallel-size",
+                tp_size_val,
+            ]
+        )
         if disable_radix_cache:
             cmd.append("--disable-radix-cache")
         cmd.extend(self._build_sglang_args())
@@ -74,15 +80,23 @@ class SGLangServer(BenchmarkBase):
 
         use_script_vars = self.script_generator is not None
         model_path_val = "$MODEL_PATH" if use_script_vars else self.get_model_path()
-        tp_size_val = "$TP_SIZE" if use_script_vars else str(self._parallel_size.get('tp', '1'))
+        tp_size_val = (
+            "$TP_SIZE" if use_script_vars else str(self._parallel_size.get("tp", "1"))
+        )
         port_val = "$PORT" if use_script_vars else str(self._port)
 
         cmd = [
-            "python", "-m", "sglang.launch_server",
-            "--model-path", model_path_val,
-            "--host", "0.0.0.0",
-            "--tensor-parallel-size", tp_size_val,
-            "--port", port_val,
+            "python",
+            "-m",
+            "sglang.launch_server",
+            "--model-path",
+            model_path_val,
+            "--host",
+            "0.0.0.0",
+            "--tensor-parallel-size",
+            tp_size_val,
+            "--port",
+            port_val,
         ]
         if disable_radix_cache:
             cmd.append("--disable-radix-cache")
@@ -94,8 +108,8 @@ class SGLangServer(BenchmarkBase):
             config = yaml.safe_load(f)
 
         # vllm server prefix caching ops determined which dataset to test
-        dataset_name = config.get('dataset_name', 'random')
-        disable_radix_cache = (dataset_name == 'random')
+        dataset_name = config.get("dataset_name", "random")
+        disable_radix_cache = dataset_name == "random"
 
         return disable_radix_cache
 
@@ -126,11 +140,11 @@ class SGLangServer(BenchmarkBase):
         logger.info("Started to initialize sglang server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
-        with open(self.server_log_path, 'a', encoding='utf-8') as f:
+        with open(self.server_log_path, "a", encoding="utf-8") as f:
             self._log_process = subprocess.Popen(
                 [self._container_runtime, "logs", "-f", self._container_name],
                 stdout=f,
-                stderr=f
+                stderr=f,
             )
 
     def _start_server_direct(self, disable_radix_cache: bool):
@@ -138,7 +152,9 @@ class SGLangServer(BenchmarkBase):
         if self._is_dry_run:
             cmd_str = " ".join(cmd)
             cmd_str = cmd_str.replace("$MODEL_PATH", str(self._model_path))
-            cmd_str = cmd_str.replace("$TP_SIZE", str(self._parallel_size.get('tp', '1')))
+            cmd_str = cmd_str.replace(
+                "$TP_SIZE", str(self._parallel_size.get("tp", "1"))
+            )
             cmd_str = cmd_str.replace("$PORT", str(self._port))
 
             logger.info("Dry run - Direct server command:")
@@ -148,31 +164,38 @@ class SGLangServer(BenchmarkBase):
         logger.info("Starting SGLang server as a direct process...")
         server_env = os.environ.copy()
         server_env["CUDA_VISIBLE_DEVICES"] = self._gpu_devices
-        with open(self._common_env_file, "r", encoding="utf-8") as f:
-            common_env = dotenv.dotenv_values(stream=f)
-            server_env.update(common_env)
         for key, value in self._env_vars.items():
             server_env[key] = str(value)
 
         self.server_log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.server_log_path, 'w', encoding='utf-8') as f:
-            self.server_process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env)
+        with open(self.server_log_path, "w", encoding="utf-8") as f:
+            self.server_process = subprocess.Popen(
+                cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env
+            )
 
     def _warmup_server(self, num_warmup_requests=5, prompt_length=16):
         if self._is_dry_run or self._is_no_warmup:
             logger.info("Skipping warmup.")
             return
 
-        logger.info("Warming up the SGLang server with %d requests...", num_warmup_requests)
+        logger.info(
+            "Warming up the SGLang server with %d requests...", num_warmup_requests
+        )
         for i in range(num_warmup_requests):
             # Generate a random prompt
-            prompt = ''.join(random.choices(string.ascii_letters + string.digits, k=prompt_length))
+            prompt = "".join(
+                random.choices(string.ascii_letters + string.digits, k=prompt_length)
+            )
             payload = {
                 "prompt": prompt,
                 "max_tokens": 16,
             }
             try:
-                response = requests.post(f"http://localhost:{self._port}/v1/completions", json=payload, timeout=60)
+                response = requests.post(
+                    f"http://localhost:{self._port}/v1/completions",
+                    json=payload,
+                    timeout=60,
+                )
                 response.raise_for_status()
                 logger.info("Warmup request %d successful.", i + 1)
             except requests.exceptions.RequestException as e:
@@ -189,7 +212,7 @@ class SGLangServer(BenchmarkBase):
     @property
     def image_tag(self) -> str:
         """Returns the SGLang Docker image tag."""
-        return self.image.split(':')[-1]
+        return self.image.split(":")[-1]
 
     @property
     def container_runtime(self) -> Optional[str]:

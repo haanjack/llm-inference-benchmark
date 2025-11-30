@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 from llm_benchmark.clients.base import BenchmarkClientBase
-from llm_benchmark.server.vllm import VLLMServer
+from llm_benchmark.server.vllm import BenchmarkBase
 from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ VLLM_IMAGE = "docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"
 class VLLMClient(BenchmarkClientBase):
     """vLLM benchmark client."""
 
-    def __init__(self, server: VLLMServer, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
+    def __init__(self, server: BenchmarkBase, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
         super().__init__("vllm", server, is_dry_run, script_generator)
 
     def run_single_benchmark(self,

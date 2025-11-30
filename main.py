@@ -14,57 +14,95 @@ from llm_benchmark.utils.utils import parse_env_file
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(levelname)s - %(message)s",
     stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
+
 def get_args():
     """Benchmark arguments"""
-    parser = argparse.ArgumentParser(description='Run LLM benchmarks')
+    parser = argparse.ArgumentParser(description="Run LLM benchmarks")
 
     # benchmark configuration
-    parser.add_argument('--model-config', required=True,
-                        help='Model config file name')
-    parser.add_argument('--model-path-or-id', required=True,
-                        help='Model checkpoint path or model id in huggingface hub')
-    parser.add_argument('--backend', default='vllm', choices=['vllm', 'sglang'],
-                        help='LLM serving backend to use')
-    parser.add_argument('--image', required=True,
-                        help='Docker image for the selected backend (vLLM or SGLang).')
-    parser.add_argument('--test-plan', default='test',
-                        help='Benchmark test plan YAML file in configs/benchmark_plans/ \
-                            (without .yaml extension)')
-    parser.add_argument('--sub-tasks', default=None, type=str, nargs='+',
-                        help='Testing sub-tasks in test-plan')
-    parser.add_argument('--env-file', default="configs/envs/common",
-                        help='Environment file name')
-    parser.add_argument('--model-root-dir', default="models",
-                        help='Model root directory')
-    parser.add_argument('--gpu-devices', default=None,
-                        help='Comma-separated GPU device IDs')
-    parser.add_argument('--num-gpus', default=None,
-                        help='Number of GPUs')
-    parser.add_argument('--arch', default=None,
-                        help='Target GPU architecture for model config')
-    parser.add_argument('--benchmark-client', default='vllm',
-                        choices=['vllm', 'genai-perf', 'sglang'],
-                        help='Benchmark client to use')
-    parser.add_argument('--endpoint', default=None,
-                        help='Specify a remote endpoint URL to benchmark against. '
-                             'If provided, the script will not start a local server.')
+    parser.add_argument("--model-config", required=True, help="Model config file name")
+    parser.add_argument(
+        "--model-path-or-id",
+        required=True,
+        help="Model checkpoint path or model id in huggingface hub",
+    )
+    parser.add_argument(
+        "--backend",
+        default="vllm",
+        choices=["vllm", "sglang"],
+        help="LLM serving backend to use",
+    )
+    parser.add_argument(
+        "--image",
+        required=True,
+        help="Docker image for the selected backend (vLLM or SGLang).",
+    )
+    parser.add_argument(
+        "--test-plan",
+        default="test",
+        help="Benchmark test plan YAML file in configs/benchmark_plans/ \
+                            (without .yaml extension)",
+    )
+    parser.add_argument(
+        "--sub-tasks",
+        default=None,
+        type=str,
+        nargs="+",
+        help="Testing sub-tasks in test-plan",
+    )
+    parser.add_argument(
+        "--env-file", default="configs/envs/common", help="Environment file name"
+    )
+    parser.add_argument(
+        "--model-root-dir", default="models", help="Model root directory"
+    )
+    parser.add_argument(
+        "--gpu-devices", default=None, help="Comma-separated GPU device IDs"
+    )
+    parser.add_argument("--num-gpus", default=None, help="Number of GPUs")
+    parser.add_argument(
+        "--arch", default=None, help="Target GPU architecture for model config"
+    )
+    parser.add_argument(
+        "--benchmark-client",
+        default="vllm",
+        choices=["vllm", "genai-perf", "sglang"],
+        help="Benchmark client to use",
+    )
+    parser.add_argument(
+        "--endpoint",
+        default=None,
+        help="Specify a remote endpoint URL to benchmark against. "
+        "If provided, the script will not start a local server.",
+    )
 
     # test control
-    parser.add_argument('--no-warmup', action='store_true',
-                        help='no warmup at benchmark start')
-    parser.add_argument('--dry-run', action='store_true',
-                        help='Show commands without executing them')
-    parser.add_argument('--in-container', action='store_true',
-                        help='Run benchmark directly without launching a new container')
-    parser.add_argument('--server-test', action='store_true',
-                        help='Initialize server only, and show benchmark commands for test')
-    parser.add_argument('--generate-script', action='store_true',
-                        help='Generate a bash script for the benchmark run.')
+    parser.add_argument(
+        "--no-warmup", action="store_true", help="no warmup at benchmark start"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Show commands without executing them"
+    )
+    parser.add_argument(
+        "--in-container",
+        action="store_true",
+        help="Run benchmark directly without launching a new container",
+    )
+    parser.add_argument(
+        "--server-test",
+        action="store_true",
+        help="Initialize server only, and show benchmark commands for test",
+    )
+    parser.add_argument(
+        "--generate-script",
+        action="store_true",
+        help="Generate a bash script for the benchmark run.",
+    )
 
     args = parser.parse_args()
 
@@ -86,8 +124,12 @@ def main():
         if args.generate_script:
             args.dry_run = True  # --generate-script implies --dry-run
             model_config_name = Path(args.model_config).stem
-            script_path = Path(f"scripts/generated/run-{model_config_name}-{args.test_plan}.sh")
-            script_generator = ScriptGenerator(output_path=script_path, in_container=args.in_container)
+            script_path = Path(
+                f"scripts/generated/run-{model_config_name}-{args.test_plan}.sh"
+            )
+            script_generator = ScriptGenerator(
+                output_path=script_path, in_container=args.in_container
+            )
 
         envs = parse_env_file(args.env_file) if args.env_file else {}
 
@@ -110,13 +152,15 @@ def main():
             }
 
         # Common arguments for all server types
-        server_kwargs.update({
-            "image": args.image,
-            "model_config": args.model_config,
-            "model_path_or_id": args.model_path_or_id,
-            "num_gpus": args.num_gpus,
-            "dry_run": args.dry_run,
-        })
+        server_kwargs.update(
+            {
+                "image": args.image,
+                "model_config": args.model_config,
+                "model_path_or_id": args.model_path_or_id,
+                "num_gpus": args.num_gpus,
+                "dry_run": args.dry_run,
+            }
+        )
 
         logger.info("Model Name: %s", args.model_path_or_id)
         logger.info("GPU devices: %s", args.gpu_devices)
@@ -136,12 +180,24 @@ def main():
 
             server.start()
 
-        if args.benchmark_client == 'vllm':
-            client = VLLMClient(server=server, is_dry_run=args.server_test or args.dry_run, script_generator=script_generator)
-        elif args.benchmark_client == 'genai-perf':
-            client = GenAIPerfClient(server=server, is_dry_run=args.server_test or args.dry_run, script_generator=script_generator)
-        elif args.benchmark_client == 'sglang':
-            client = SGLangClient(server=server, is_dry_run=args.server_test or args.dry_run, script_generator=script_generator)
+        if args.benchmark_client == "vllm":
+            client = VLLMClient(
+                server=server,
+                is_dry_run=args.server_test or args.dry_run,
+                script_generator=script_generator,
+            )
+        elif args.benchmark_client == "genai-perf":
+            client = GenAIPerfClient(
+                server=server,
+                is_dry_run=args.server_test or args.dry_run,
+                script_generator=script_generator,
+            )
+        elif args.benchmark_client == "sglang":
+            client = SGLangClient(
+                server=server,
+                is_dry_run=args.server_test or args.dry_run,
+                script_generator=script_generator,
+            )
         else:
             raise ValueError(f"Unknown benchmark client: {args.benchmark_client}")
 
@@ -161,6 +217,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("Benchmark interrupted by user.")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

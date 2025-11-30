@@ -24,7 +24,7 @@ The script supports two main execution modes:
 
     ```bash
     # Example of running inside a pre-configured container
-    python run_vllm_benchmark.py --in-container --model-config ...
+    python main.py --in-container --model-config ...
     ```
 
 ## Basic usage of test
@@ -155,7 +155,7 @@ Following command is an example of benchmarks. (server: `vllm` and client: `vllm
 ### LLaMA3.3 70B
 
 ```bash
-python3 run_vllm_benchmark.py \
+python3 main.py \
   --model-config configs/models/llama.yaml \
   --model-path ~/models/amd/Llama-3.3-70B-Instruct-FP8-KV \
   --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103 \
@@ -167,7 +167,7 @@ python3 run_vllm_benchmark.py \
 ### GPT-OSS-120B
 
 ```bash
-python3 run_vllm_benchmark.py \
+python3 main.py \
   --model-config configs/models/gpt-oss.yaml \
   --model-path ~/models/openai/gpt-oss-120b \
   --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
@@ -179,7 +179,7 @@ python3 run_vllm_benchmark.py \
 ### DeepSeek R1
 
 ```bash
-python3 run_vllm_benchmark.py \
+python3 main.py \
   --model-config configs/models/deepseek.yaml \
   --model-path ~/models/deepseek-ai/DeepSeek-R1-0528 \
   --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
@@ -191,7 +191,7 @@ python3 run_vllm_benchmark.py \
 ### Qwen3 30B A3B FP8
 
 ```bash
-python run_vllm_benchmark.py \
+python main.py \
   --model-config configs/models/default.yaml \
   --model-path ~/models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
   --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \

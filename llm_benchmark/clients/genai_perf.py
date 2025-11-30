@@ -1,10 +1,7 @@
 import logging
-import os
 import subprocess
-import re
 from pathlib import Path
-from typing import Dict, Any, List
-import tempfile
+from typing import Dict, Any
 import json
 
 from llm_benchmark.clients.base import BenchmarkClientBase
@@ -26,9 +23,6 @@ class GenAIPerfClient(BenchmarkClientBase):
                              client_image: str = GENAI_PERF_IMAGE,
                              **kwargs):
         """Run a single benchmark test."""
-        random_range_ratio = test_args.get('random_range_ratio', 0.0)
-
-
         request_rate = kwargs.get('request_rate')
         concurrency = kwargs.get('concurrency')
         input_length = kwargs.get('input_length')
@@ -55,7 +49,7 @@ class GenAIPerfClient(BenchmarkClientBase):
             self.server.container_runtime, "run", "--rm",
             "--network=host",
             "-v", f"{log_file.parent.resolve()}:/tmp/artifacts",
-            "-v", f"{self.server._model_path}:{model_path_val}",
+            "-v", f"{self.server.get_host_model_path()}:{model_path_val}",
             client_image,
             "genai-perf", "profile",
             "-m", model_path_val,
@@ -113,7 +107,7 @@ class GenAIPerfClient(BenchmarkClientBase):
                 return {}
 
         # Mapping from genai-perf metric names to our internal names
-        METRIC_MAPPING = {
+        metric_mapping = {
             # TTFT
             'ttft_mean_ms': ('time_to_first_token', 'avg'),
             'ttft_median_ms': ('time_to_first_token', 'p50'),
@@ -142,7 +136,7 @@ class GenAIPerfClient(BenchmarkClientBase):
         # Extract metrics using Dictionary Comprehension (The concise part)
         metrics = {
             key: data[source][stat]
-            for key, (source, stat) in METRIC_MAPPING.items()
+            for key, (source, stat) in metric_mapping.items()
         }
         metrics['test_time_s'] = data.get('duration', 0.0)
 
@@ -155,7 +149,7 @@ class GenAIPerfClient(BenchmarkClientBase):
 
         return metrics
 
-    def parse_genai_perf_metrics(json_path: Path) -> Dict[str, float]:
+    def parse_genai_perf_metrics(self, json_path: Path) -> Dict[str, float]:
         """
         Parses GenAI-Perf 'profile_export.json' and converts it to vLLM benchmark format.
 
@@ -166,7 +160,7 @@ class GenAIPerfClient(BenchmarkClientBase):
             Dict containing vLLM-style metrics (in ms for latencies).
         """
         if not json_path.exists():
-            logger.error(f"GenAI-Perf result file not found: {json_path}")
+            logger.error("GenAI-Perf result file not found: %s", json_path)
             return {}
 
         try:
@@ -238,5 +232,5 @@ class GenAIPerfClient(BenchmarkClientBase):
             return metrics
 
         except Exception as e:
-            logger.error(f"Failed to parse GenAI-Perf metrics: {e}")
+            logger.error("Failed to parse GenAI-Perf metrics: %s", e)
             return {}

@@ -4,12 +4,13 @@ import subprocess
 import time
 import sys
 from pathlib import Path
-from llm_benchmark.utils.script_generator import ScriptGenerator
 from typing import Dict, List, Optional, Union
+from urllib.parse import urlparse
 import yaml
 import requests
-from urllib.parse import urlparse
 from huggingface_hub import snapshot_download
+
+from llm_benchmark.utils.script_generator import ScriptGenerator
 
 # Configure logging
 logging.basicConfig(

@@ -1,11 +1,9 @@
-import cmd
 import logging
 import re
 import subprocess
-import pandas as pd
 from pathlib import Path
 from typing import Any
-from typing import Dict, List
+from typing import Dict
 
 from llm_benchmark.clients.base import BenchmarkClientBase
 from llm_benchmark.server.base import BenchmarkBase

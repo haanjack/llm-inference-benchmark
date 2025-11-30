@@ -4,24 +4,22 @@ import subprocess
 import time
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 import tempfile
 import requests
-import datetime
 import yaml
-import dotenv
 
 from llm_benchmark.server.base import BenchmarkBase
 from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
+BENCHMARK_BASE_PORT=23400
+
 class VLLMServer(BenchmarkBase):
     """vLLM Server management."""
-    def __init__(self,
-                test_plan: str,
-                no_warmup: bool = False,
-                **kwargs):
+
+    def __init__(self, test_plan: str, no_warmup: bool = False, **kwargs):
         super().__init__(name="vllm", **kwargs)
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._is_no_warmup = no_warmup
@@ -56,14 +54,24 @@ class VLLMServer(BenchmarkBase):
             self.temp_compile_config_file = "/tmp/dummy_compile_config.yaml"
             config_path = self.temp_compile_config_file
         else:
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=self._compile_cache_dir, encoding="utf-8", delete=False) as f:
-                dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".yaml",
+                dir=self._compile_cache_dir,
+                encoding="utf-8",
+                delete=False,
+            ) as f:
+                dict_config_str = json.dumps(
+                    self._compilation_config, separators=(",", ":")
+                )
                 f.write(f"compilation_config: '{dict_config_str}'")
                 config_path = f.name
                 self.temp_compile_config_file = f.name
 
         if not self._in_container:
-            config_path = str(Path("/root/.cache/compile_config") / Path(config_path).name)
+            config_path = str(
+                Path("/root/.cache/compile_config") / Path(config_path).name
+            )
 
         args.extend(["--config", config_path])
         return args
@@ -75,25 +83,38 @@ class VLLMServer(BenchmarkBase):
         use_script_vars = self.script_generator is not None
         image_val = "$IMAGE" if use_script_vars else self.image
         model_path_val = "$MODEL_PATH" if use_script_vars else self.get_model_path()
-        tp_size_val = "$TP_SIZE" if use_script_vars else str(self._parallel_size.get('tp', '1'))
+        tp_size_val = (
+            "$TP_SIZE" if use_script_vars else str(self._parallel_size.get("tp", "1"))
+        )
         port_val = "$PORT" if use_script_vars else str(self._port)
 
         # set volume mounts and run server command
-        cmd.extend([
-            "-v", f"{self._host_cache_dir}:/root/.cache",
-            "-v", f"{self._compile_cache_dir}:/root/.cache/compile_config",
-            "-v", f"{self._aiter_cache_dir}:/root/.aiter",
-            "-v", f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
-            "-w", f"{os.environ.get('HOME')}",
-            image_val,
-            "vllm", "serve",
-            model_path_val,
-            "--host", "0.0.0.0",
-            "--no-enable-log-requests",
-            "--trust-remote-code",
-            "--tensor-parallel-size", tp_size_val,
-            "--port", port_val,
-        ])
+        cmd.extend(
+            [
+                "-v",
+                f"{self._host_cache_dir}:/root/.cache",
+                "-v",
+                f"{self._compile_cache_dir}:/root/.cache/compile_config",
+                "-v",
+                f"{self._aiter_cache_dir}:/root/.aiter",
+                "-v",
+                f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
+                "-w",
+                f"{os.environ.get('HOME')}",
+                image_val,
+                "vllm",
+                "serve",
+                model_path_val,
+                "--host",
+                "0.0.0.0",
+                "--no-enable-log-requests",
+                "--trust-remote-code",
+                "--tensor-parallel-size",
+                tp_size_val,
+                "--port",
+                port_val,
+            ]
+        )
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
         cmd.extend(self._build_vllm_args())
@@ -104,17 +125,23 @@ class VLLMServer(BenchmarkBase):
 
         use_script_vars = self.script_generator is not None
         model_path_val = "$MODEL_PATH" if use_script_vars else self.get_model_path()
-        tp_size_val = "$TP_SIZE" if use_script_vars else str(self._parallel_size.get('tp', '1'))
+        tp_size_val = (
+            "$TP_SIZE" if use_script_vars else str(self._parallel_size.get("tp", "1"))
+        )
         port_val = "$PORT" if use_script_vars else str(self._port)
 
         cmd = [
-            "vllm", "serve",
+            "vllm",
+            "serve",
             model_path_val,
-            "--host", "0.0.0.0",
+            "--host",
+            "0.0.0.0",
             "--no-enable-log-requests",
             "--trust-remote-code",
-            "--tensor-parallel-size", tp_size_val,
-            "--port", port_val,
+            "--tensor-parallel-size",
+            tp_size_val,
+            "--port",
+            port_val,
         ]
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
@@ -126,8 +153,8 @@ class VLLMServer(BenchmarkBase):
             config = yaml.safe_load(f)
 
         # vllm server prefix caching ops determined which dataset to test
-        dataset_name = config.get('dataset_name', 'random')
-        no_enable_prefix_caching = (dataset_name == 'random')
+        dataset_name = config.get("dataset_name", "random")
+        no_enable_prefix_caching = dataset_name == "random"
 
         return no_enable_prefix_caching
 
@@ -154,18 +181,20 @@ class VLLMServer(BenchmarkBase):
             logger.info("Dry run - Docker server command:")
             logger.info(" ".join(cmd))
             logger.info("config file content:")
-            dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
-            logger.info(f"compilation_config: '{dict_config_str}'")
+            dict_config_str = json.dumps(
+                self._compilation_config, separators=(",", ":")
+            )
+            logger.info("compilation_config: %s", dict_config_str)
             return
 
         logger.info("Started to initialize vllm server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
-        with open(self.server_log_path, 'a', encoding='utf-8') as f:
+        with open(self.server_log_path, "a", encoding="utf-8") as f:
             self._log_process = subprocess.Popen(
                 [self._container_runtime, "logs", "-f", self._container_name],
                 stdout=f,
-                stderr=f
+                stderr=f,
             )
 
     def _start_server_direct(self, no_enable_prefix_caching: bool):
@@ -178,24 +207,25 @@ class VLLMServer(BenchmarkBase):
         logger.info("Starting vLLM server as a direct process...")
         server_env = os.environ.copy()
         server_env["CUDA_VISIBLE_DEVICES"] = self._gpu_devices
-        with open(self._common_env_file, "r", encoding="utf-8") as f:
-            common_env = dotenv.dotenv_values(stream=f)
-            server_env.update(common_env)
         for key, value in self._env_vars.items():
             server_env[key] = str(value)
-        if 'BENCHMARK_BASE_PORT' in server_env:
-            global BENCHMARK_BASE_PORT # pylint: disable=global-statement
-            BENCHMARK_BASE_PORT = int(server_env['BENCHMARK_BASE_PORT'])
-            del server_env['BENCHMARK_BASE_PORT']
+        if "BENCHMARK_BASE_PORT" in server_env:
+            global BENCHMARK_BASE_PORT  # pylint: disable=global-statement
+            BENCHMARK_BASE_PORT = int(server_env["BENCHMARK_BASE_PORT"])
+            del server_env["BENCHMARK_BASE_PORT"]
 
         self.server_log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.server_log_path, 'w', encoding='utf-8') as f:
-            self.server_process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env)
+        with open(self.server_log_path, "w", encoding="utf-8") as f:
+            self.server_process = subprocess.Popen(
+                cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env
+            )
 
     def _wait_for_server(self, timeout: int = 2 * 60 * 60) -> bool:
         if super()._wait_for_server(timeout):
             # vLLM can return 200 with an empty list before it's truly ready
-            response = requests.get(f"http://localhost:{self._port}/v1/models", timeout=10)
+            response = requests.get(
+                f"http://localhost:{self._port}/v1/models", timeout=10
+            )
             if response.json():
                 return True
         return False
@@ -208,7 +238,9 @@ class VLLMServer(BenchmarkBase):
         logger.info("Warming up the server...")
         warmup_cmd = ["curl", f"http://localhost:{self.port}/v1/models"]
         start_time = time.time()
-        subprocess.run(warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        subprocess.run(
+            warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
+        )
         logger.info("Warmup complete in %.2f seconds.", time.time() - start_time)
 
     def cleanup(self):
@@ -227,14 +259,17 @@ class VLLMServer(BenchmarkBase):
         if not os.path.exists(self.temp_compile_config_file):
             return
 
-        logger.info("Cleaning up temporary compile config file: %s", self.temp_compile_config_file)
+        logger.info(
+            "Cleaning up temporary compile config file: %s",
+            self.temp_compile_config_file,
+        )
         os.remove(self.temp_compile_config_file)
         self.temp_compile_config_file = None
 
     @property
     def image_tag(self) -> str:
         """Returns the vLLM Docker image tag."""
-        return self.image.split(':')[-1]
+        return self.image.split(":")[-1]
 
     @property
     def container_runtime(self) -> Optional[str]:
