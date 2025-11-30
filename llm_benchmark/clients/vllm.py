@@ -1,5 +1,6 @@
 import logging
 import subprocess
+import os
 import re
 from pathlib import Path
 from typing import Dict, Any
@@ -49,8 +50,13 @@ class VLLMClient(BenchmarkClientBase):
         cmd = []
         if not self.server.in_container:
             if self.server.addr != "0.0.0.0" or self.server.name != "vllm":
+                group_option = "keep-groups" if os.environ.get("SLURM_JOB_ID", None) else "video"
                 cmd.extend([
                     self.server.container_runtime, "run", "--rm",
+                    "--device", "/dev/kfd", "--device", "/dev/dri", "--device", "/dev/mem",
+                    "--group-add", group_option,
+                    "--cap-add=CAP_SYS_ADMIN",
+                    "--cap-add=SYS_PTRACE",
                     "--network=host",
                     "-v", f"{Path.cwd()}:{Path.cwd()}",
                     "-v", f"{self.server.get_host_model_path()}:{model_path_val}",
