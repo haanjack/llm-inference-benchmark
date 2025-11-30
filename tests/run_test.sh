@@ -56,6 +56,7 @@ if [ -n "${sub_task}" ]; then
     extra_opt+=" --sub-task ${sub_task}"
 fi
 
+set -x
 python3 main.py \
     --model-config $model_config \
     --model-path-or-id $model_path_or_id \
@@ -65,3 +66,4 @@ python3 main.py \
     --test-plan ${test_plan} \
     --gpu-devices ${gpu_devices} \
     ${extra_opt}
+set +x

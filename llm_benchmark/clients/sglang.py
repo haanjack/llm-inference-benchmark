@@ -42,8 +42,8 @@ class SGLangClient(BenchmarkClientBase):
         request_rate_val = f"${{REQUEST_RATE}}" if use_script_vars else (str(request_rate) if request_rate > 0 else 'inf')
 
         cmd = []
-        if not self.server.in_container or self.server.name != "sglang":
-            if self.server.addr != "0.0.0.0":
+        if not self.server.in_container:
+            if self.server.name != "sglang" or self.server.addr != "0.0.0.0":
                 cmd.extend([
                     self.server.container_runtime, "run", "--rm",
                     "--network=host",
@@ -57,6 +57,7 @@ class SGLangClient(BenchmarkClientBase):
             "python3", "-m", "sglang.bench_serving",
             "--host", self.server.addr,
             "--port", str(self.server.port),
+            "--backend", self.server.name,
             "--tokenizer", model_path_val,
             "--dataset-name", dataset_name,
             "--request-rate", request_rate_val,

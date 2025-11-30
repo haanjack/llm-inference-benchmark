@@ -91,7 +91,7 @@ class BenchmarkBase:
         self._exp_tag = f"{Path(self._model_config).stem}"
         if not self._remote_server_endpoint:
             self._exp_tag += f"-tp{self._parallel_size.get('tp', '1')}"
-            self.server_log_path = self._log_dir / self._exp_tag / "server_logs" / f"{self._parallel_size.get('tp', '1')}-{current_time}.txt"
+            self.server_log_path = self._log_dir / self._exp_tag / "server_logs" / f"{current_time}.txt"
         if not self._is_dry_run:
             self.server_log_path.parent.mkdir(parents=True, exist_ok=True)
 

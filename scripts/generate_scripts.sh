@@ -1,6 +1,6 @@
 #!/bin/bash
 
-run_mode="generate_script" # Options: "" | "profile" | "dry_run" | "generate_script"
+run_mode="generate_test" # Options: "" | "profile" | "dry_run" | "generate_script"
 test_plan="sample"
 gpu_devices="0"
 sub_task="1k1k"
@@ -41,8 +41,6 @@ for key in "${!model_and_configs[@]}"; do
             fi
 
             bash tests/run_test.sh ${run_mode} ${model_config} ${model_path_or_id} ${server_backend} ${image} ${benchmark_client} ${test_plan} ${gpu_devices} ${sub_task}
-
-            exit 1
 
         done
     done

@@ -65,7 +65,8 @@ class VLLMClient(BenchmarkClientBase):
         cmd.extend([
             "vllm", "bench", "serve",
             "--model", model_path_val,
-            "--backend", "vllm", "--host", self.server.addr, "--port", str(self.server.port),
+            "--backend", self.server.name,
+            "--host", self.server.addr, "--port", str(self.server.port),
             "--dataset-name", dataset_name_val,
             "--ignore-eos",
             "--trust-remote-code",
