@@ -149,6 +149,7 @@ def main():
                 "model_path_or_id": args.model_path_or_id,
                 "num_gpus": args.num_gpus,
                 "dry_run": args.dry_run,
+                "script_generator": script_generator,
             }
         )
 

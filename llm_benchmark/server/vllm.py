@@ -49,13 +49,9 @@ class VLLMServer(BenchmarkBase):
             else:
                 args.extend([f"--{key.replace('_', '-')}", str(value)])
 
-        if self._is_dry_run:
-            self.temp_compile_config_file = "/tmp/dummy_compile_config.yaml"
-            config_path = self.temp_compile_config_file
-
         # When generating scripts, inline the compilation-config JSON for portability
         # Only add --compilation-config if the dict is non-empty
-        if self.script_generator is None:
+        if self.script_generator is not None or self._is_dry_run:
             if self._compilation_config:
                 dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
                 args.extend(["--compilation-config", f"'{dict_config_str}'"])
