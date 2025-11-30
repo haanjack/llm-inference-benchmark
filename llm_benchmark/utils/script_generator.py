@@ -147,11 +147,12 @@ def prettify_generated_scripts(
     tmp_dir: Path,
     output_dir: Path,
     model_config_name: str,
+    benchmark_client: str,
     test_plan: str
 ):
     """
     Prettify generated scripts from tmp directory and save to output directory.
-    
+
     Args:
         tmp_dir: Temporary directory containing generated scripts
         output_dir: Output directory for prettified scripts
@@ -161,21 +162,21 @@ def prettify_generated_scripts(
     import sys
     import subprocess
     import shutil
-    
-    logger.info("Prettifying generated scripts...")
+
+    logger.info("Finalizing generated scripts...")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Find all generated scripts in tmp directory
-    pattern = f"run-{model_config_name}-{test_plan}*.sh"
-    
+    pattern = f"run-{model_config_name}_with_{benchmark_client}-{test_plan}*.sh"
+
     prettifier_script = Path("scripts/generated_script_prettifier.py")
     if not prettifier_script.exists():
         logger.warning("Prettifier script not found at %s. Skipping prettification.", prettifier_script)
         return
-    
+
     for tmp_script in tmp_dir.glob(pattern):
         output_file = output_dir / tmp_script.name
-        logger.info("Prettifying: %s -> %s", tmp_script, output_file)
+        logger.info("Generated: %s -> %s", tmp_script, output_file)
         try:
             subprocess.run(
                 [sys.executable, str(prettifier_script), "-i", str(tmp_script), "-o", str(output_file)],
@@ -188,5 +189,9 @@ def prettify_generated_scripts(
             # Copy the original script if prettification fails
             shutil.copy2(tmp_script, output_file)
             logger.info("Copied unprettified script to %s", output_file)
-    
+        finally:
+            # remove the temporary script
+            tmp_script.unlink()
+
+
     logger.info("All scripts prettified and saved to %s", output_dir)

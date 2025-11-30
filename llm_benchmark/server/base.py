@@ -414,6 +414,3 @@ class BenchmarkBase:
 
         for key, value in self._env_vars.items():
             generator.add_env_variable(key, value)
-
-        # This method should be overridden by subclasses to add specific commands
-        logger.warning("generate_script() not fully implemented for %s", self.__class__.__name__)

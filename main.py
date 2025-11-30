@@ -118,7 +118,7 @@ def main():
             model_config_name = Path(args.model_config).stem
             # Use /tmp directory for intermediate script generation
             TMP_SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
-            tmp_script_path = TMP_SCRIPT_DIR / f"run-{model_config_name}-{args.test_plan}.sh"
+            tmp_script_path = TMP_SCRIPT_DIR / f"run-{model_config_name}_with_{args.benchmark_client}-{args.test_plan}.sh"
             script_generator = ScriptGenerator(output_path=tmp_script_path, in_container=args.in_container)
 
         envs = parse_env_file(args.env_file) if args.env_file else {}
@@ -206,7 +206,7 @@ def main():
         if args.generate_script and script_generator:
             output_dir = Path(args.generated_script_output_dir)
             model_config_name = Path(args.model_config).stem
-            prettify_generated_scripts(TMP_SCRIPT_DIR, output_dir, model_config_name, args.test_plan)
+            prettify_generated_scripts(TMP_SCRIPT_DIR, output_dir, model_config_name, args.benchmark_client, args.test_plan)
 
     except Exception as e:
         logger.exception("Benchmark failed: %s", str(e))
