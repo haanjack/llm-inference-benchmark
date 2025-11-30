@@ -10,6 +10,7 @@ This script:
 """
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -23,7 +24,7 @@ def prettify_script(input_path: Path, output_path: Path = None):
         return 1
 
     # Read the original script
-    with open(input_path, 'r') as f:
+    with open(input_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
     # Early fix: ensure critical line breaks before other substitutions alter whitespace
@@ -46,11 +47,15 @@ def prettify_script(input_path: Path, output_path: Path = None):
         content
     )
 
-    # 2) Separate warmup-request-count and trailing 'done' into two lines
+    # 2) Separate any line with trailing whitespace + 'done' into two lines
+    # This handles genai-perf (--warmup-request-count), sglang (--num-prompt), vllm (--percentile-metrics), etc.
+    # Preserve the proper indentation by detecting it from context
+    # Preserve the proper indentation by reducing by one level (4 spaces)
     content = re.sub(
-        r'(--warmup-request-count \$\{CONCURRENCY\})\s+done',
-        r'\1\n                done',
-        content
+        r'^(\s*)(\S(?:(?!done).)*\S)\s{2,}done$',
+        lambda m: m.group(1) + m.group(2) + '\n' + ' ' * max(0, len(m.group(1)) - 4) + 'done',
+        content,
+        flags=re.MULTILINE
     )
 
     # Extract variable values from the header
@@ -61,7 +66,6 @@ def prettify_script(input_path: Path, output_path: Path = None):
     tp_size_match = re.search(r'^TP_SIZE="([^"]+)"', content, re.MULTILINE)
 
     # Detect user's home directory from the script
-    import os
     user_home = os.path.expanduser('~')
 
     if not all([model_path_match, image_match, container_name_match, port_match, tp_size_match]):
@@ -90,12 +94,12 @@ def prettify_script(input_path: Path, output_path: Path = None):
     # Extract loop values to convert into variables
     loop_values = {}
     loop_patterns = {
-        'REQUEST_RATES': r'for REQUEST_RATE in ([^;]+);',
+        'DATASET_NAMES': r'for DATASET_NAME in ([^;]+);',
         'NUM_PROMPTS_LIST': r'for NUM_PROMPTS in ([^;]+);',
+        'REQUEST_RATES': r'for REQUEST_RATE in ([^;]+);',
         'INPUT_LENGTHS': r'for INPUT_LENGTH in ([^;]+);',
         'OUTPUT_LENGTHS': r'for OUTPUT_LENGTH in ([^;]+);',
         'CONCURRENCY_LEVELS': r'for CONCURRENCY in ([^;]+);',
-        'DATASET_NAMES': r'for DATASET_NAME in ([^;]+);',
     }
 
     for var_name, pattern in loop_patterns.items():
@@ -245,12 +249,12 @@ def prettify_script(input_path: Path, output_path: Path = None):
     # Replace loop value literals with variable references BEFORE inserting the variables section
     for var_name, values in loop_values.items():
         loop_var_mapping = {
-            'REQUEST_RATES': 'REQUEST_RATE',
+            'DATASET_NAMES': 'DATASET_NAME',
             'NUM_PROMPTS_LIST': 'NUM_PROMPTS',
+            'REQUEST_RATES': 'REQUEST_RATE',
             'INPUT_LENGTHS': 'INPUT_LENGTH',
             'OUTPUT_LENGTHS': 'OUTPUT_LENGTH',
             'CONCURRENCY_LEVELS': 'CONCURRENCY',
-            'DATASET_NAMES': 'DATASET_NAME',
         }
         loop_var = loop_var_mapping.get(var_name)
         if loop_var:
@@ -392,16 +396,17 @@ def prettify_script(input_path: Path, output_path: Path = None):
         r'\1\n    \2 \3',
         content
     )
-    # Final pass: ensure warmup line and 'done' are split
+    # Final pass: ensure any line with trailing whitespace + 'done' are split
     content = re.sub(
-        r'(--warmup-request-count \$\{CONCURRENCY\})\s+done',
-        r'\1\n                done',
-        content
+        r'^(\s*)(\S(?:(?!done).)*\S)\s{2,}done$',
+        lambda m: m.group(1) + m.group(2) + '\n' + ' ' * max(0, len(m.group(1)) - 4) + 'done',
+        content,
+        flags=re.MULTILINE
     )
 
     # Output to file or stdout
     if output_path:
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             f.write(content)
         output_path.chmod(0o755)
         print(f"Prettified script saved to: {output_path}")

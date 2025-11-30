@@ -40,7 +40,9 @@ for key in "${!model_and_configs[@]}"; do
                 continue
             fi
 
-            echo bash tests/run_test.sh ${run_mode} ${model_config} ${model_path_or_id} ${server_backend} ${image} ${benchmark_client} ${test_plan} ${gpu_devices} ${sub_task}
+            bash tests/run_test.sh ${run_mode} ${model_config} ${model_path_or_id} ${server_backend} ${image} ${benchmark_client} ${test_plan} ${gpu_devices} ${sub_task}
+
+            exit 1
 
         done
     done
