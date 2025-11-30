@@ -2,10 +2,14 @@
 
 # Args
 run_mode=${1:-""}
-server_backend=${2:-"vllm"}
-benchmark_client=${3:-"vllm"}
-test_plan=${4:-"test"}
-gpu_devices=${5:-"0"}
+model_config=${2:-"configs/models/llama-vllm.yaml"}
+model_path_or_id=${3:-"amd/Llama-3.1-8B-Instruct-FP8-KV"}
+server_backend=${4:-"vllm"}
+docker_image=${5:-"docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"}
+benchmark_client=${6:-"vllm"}
+test_plan=${7:-"test"}
+gpu_devices=${8:-"0"}
+sub_task=${9:-""}
 
 # check inputs are available options
 run_modes=("" "profile" "dry_run" "generate_script")
@@ -33,44 +37,31 @@ if [[ ! " ${benchmark_clients[@]} " =~ " ${benchmark_client} " ]]; then
     exit 1
 fi
 
-run_mode_opt=""
-if [ "${run_mode}" == "profile" ]; then
-    run_mode_opt=""
-elif [ "${run_mode}" == "dry_run" ]; then
-    run_mode_opt="--dry-run"
-elif [ "${run_mode}" == "generate_script" ]; then
-    run_mode_opt="--generate-script"
+# check if model_config is exists
+if [ ! -f "$model_config" ]; then
+    echo "Model config file not found: '${model_config}'"
+    exit 1
 fi
 
-# set variables based on inputs
-if [ "${server_backend}" == "sglang" ]; then
-    image="docker.io/rocm/sgl-dev:v0.5.5.post3-rocm700-mi30x-20251123"
-    model_config="configs/models/default-sglang.yaml"
-    backend="sglang"
-else
-    image="docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"
-    model_config="configs/models/llama-vllm.yaml"
-    backend="vllm"
+extra_opt=""
+if [ "${run_mode}" == "profile" ]; then
+    extra_opt=""
+elif [ "${run_mode}" == "dry_run" ]; then
+    extra_opt="--dry-run"
+elif [ "${run_mode}" == "generate_script" ]; then
+    extra_opt="--generate-script"
+fi
+
+if [ -n "${sub_task}" ]; then
+    extra_opt+=" --sub-task ${sub_task}"
 fi
 
 python3 main.py \
     --model-config $model_config \
-    --model-path-or-id amd/Llama-3.1-8B-Instruct-FP8-KV \
-    --backend $backend \
-    --image $image \
+    --model-path-or-id $model_path_or_id \
+    --backend $server_backend \
+    --image $docker_image \
     --benchmark-client $benchmark_client \
     --test-plan ${test_plan} \
     --gpu-devices ${gpu_devices} \
-    ${run_mode_opt}
-
-if [ "${run_mode}" == "generate_script" ]; then
-    # Find all generated scripts matching the pattern and prettify them (overwrite in place)
-    echo "Prettifying generated scripts..."
-    for script in scripts/generated/run-*-${test_plan}*.sh; do
-        if [ -f "$script" ]; then
-            echo "Prettifying (in-place): $script"
-            python3 scripts/generated_script_prettifier.py -i "$script" -o "$script"
-        fi
-    done
-    echo "All scripts prettified."
-fi
+    ${extra_opt}

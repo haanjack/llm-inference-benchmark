@@ -50,6 +50,7 @@ class VLLMServer(BenchmarkBase):
             else:
                 args.extend([f"--{key.replace('_', '-')}", str(value)])
 
+<<<<<<< HEAD
         if self._is_dry_run:
             self.temp_compile_config_file = "/tmp/dummy_compile_config.yaml"
             config_path = self.temp_compile_config_file
@@ -79,8 +80,27 @@ class VLLMServer(BenchmarkBase):
             config_path = str(
                 Path("/root/.cache/compile_config") / Path(config_path).name
             )
+=======
+        # When generating scripts, inline the compilation-config JSON for portability
+        if self.script_generator is not None:
+            dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
+            args.extend(["--compilation-config", dict_config_str])
+        else:
+            if self._is_dry_run:
+                self.temp_compile_config_file = "/tmp/dummy_compile_config.yaml"
+                config_path = self.temp_compile_config_file
+            else:
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=self._compile_cache_dir, encoding="utf-8", delete=False) as f:
+                    dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
+                    f.write(f"compilation_config: '{dict_config_str}'")
+                    config_path = f.name
+                    self.temp_compile_config_file = f.name
 
-        args.extend(["--config", config_path])
+            if not self._in_container:
+                config_path = str(Path("/root/.cache/compile_config") / Path(config_path).name)
+>>>>>>> 0665339 (added)
+
+            args.extend(["--config", config_path])
         return args
 
     def get_server_run_cmd(self, no_enable_prefix_caching: bool) -> List[str]:

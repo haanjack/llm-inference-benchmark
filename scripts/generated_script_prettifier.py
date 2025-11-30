@@ -359,11 +359,18 @@ def prettify_script(input_path: Path, output_path: Path = None):
             content
         )
 
+<<<<<<< HEAD
     # Remove dummy compile config file reference (if present during dry-run)
     # The actual --compilation-config JSON is already inlined by the server during generation
     content = re.sub(
         r"\s+--config\s+/root/\.cache/compile_config/[^\s]+\s*",
         " ",
+=======
+    # Replace dummy compile config with explicit compilation-config JSON (fallback if server didn't inline it)
+    content = re.sub(
+        r"--config\s+/root/\.cache/compile_config/dummy_compile_config\.yaml\s*&",
+        "--compilation-config '{\"custom_ops\": [ \"-rms_norm\", \"-quant_fp8\", \"-silu_and_mul\" ]}' &",
+>>>>>>> 0665339 (added)
         content
     )
 

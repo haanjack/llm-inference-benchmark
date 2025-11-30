@@ -1,4 +1,5 @@
 import logging
+import re
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -34,7 +35,9 @@ class ScriptGenerator:
 
     def set_server_command(self, command: List[str]):
         """Sets the server start command."""
-        cmd_str = " \\\n    ".join(self._format_command(command))
+        lines = self._format_command(command)
+        # Ensure no accidental concatenation across lines for critical tokens
+        cmd_str = " \\\n    ".join(lines)
         self.script_parts["server_cmd"].append(f"{cmd_str} &")
         self.script_parts["server_cmd"].append("SERVER_PID=$!")
         self.script_parts["server_cmd"].append("trap 'kill $SERVER_PID' EXIT") # Cleanup on exit
@@ -120,7 +123,10 @@ class ScriptGenerator:
         indent = "    " * indent_level
         formatted_cmd = self._format_command(command_template)
         self.script_parts["client_loop"].append("")
-        self.script_parts["client_loop"].append(indent + (" \\\n" + indent + "    ").join(formatted_cmd))
+        client_block = indent + (" \\\n" + indent + "    ").join(formatted_cmd)
+        # Guard: ensure each argument stays on its own line when joined
+        client_block = re.sub(r'(\s+\\\n\s+)(genai-perf|vllm|profile)', r' \\\n' + indent + r'    \2', client_block)
+        self.script_parts["client_loop"].append(client_block)
 
         # Close all loops
         for _ in range(len(params_to_loop)):

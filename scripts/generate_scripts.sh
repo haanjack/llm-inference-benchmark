@@ -1,49 +1,47 @@
 #!/bin/bash
 
-# Args
-model_config=${1:-"configs/models/llama-vllm.yaml"}
-model_path_or_id=${2:-"amd/Llama-3.1-8B-Instruct-FP8-KV"}
-server_backend=${3:-"vllm"}
-benchmark_client=${4:-"vllm"}
-test_plan=${5:-"sample"}
-gpu_devices=${6:-"0"}
+run_mode="generate_script" # Options: "" | "profile" | "dry_run" | "generate_script"
+test_plan="sample"
+gpu_devices="0"
+sub_task="1k1k"
 
-image="docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"
-
-# check inputs are available options
-run_modes=("" "profile" "dry_run" "generate_script")
-server_backends=("sglang" "vllm")
+server_backends=("vllm" "sglang")
 benchmark_clients=("vllm" "sglang" "genai-perf")
 
-# Validate argument values
-if [[ ! " ${run_modes[@]} " =~ " ${run_mode} " ]]; then
-    echo "Invalid run mode: '${run_mode}'"
-    echo "Available options are: ${run_modes[@]}"
-    echo "Usage: $0 <model_config> <server_backend> <benchmark_client> [test_plan]"
-    exit 1
-fi
+image_vllm="docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"
+image_sgl="docker.io/rocm/sgl-dev:v0.5.5.post3-rocm700-mi30x-20251123"
 
-if [[ ! " ${server_backends[@]} " =~ " ${server_backend} " ]]; then
-    echo "Invalid server backend: '${server_backend}'"
-    echo "Available options are: ${server_backends[@]}"
-    echo "Usage: $0 <model_config> <server_backend> <benchmark_client> [test_plan]"
-    exit 1
-fi
-if [[ ! " ${benchmark_clients[@]} " =~ " ${benchmark_client} " ]]; then
-    echo "Invalid benchmark client: '${benchmark_client}'"
-    echo "Available options are: ${benchmark_clients[@]}"
-    echo "Usage: $0 <model_config> <server_backend> <benchmark_client> [test_plan]"
-    exit 1
-fi
+declare -A model_and_configs
+model_and_configs["llama"]="configs/models/llama- amd/Llama-3.1-8B-Instruct-FP8-KV"
+model_and_configs["deepseek"]="configs/models/deepseek- deepseek-ai/DeepSeek-R1"
+model_and_configs["qwen"]="configs/models/qwen- Qwen/Qwen3-32B"
+model_and_configs["qwen-moe"]="configs/models/qwen-moe- Qwen/Qwen3-235B-A22B"
+model_and_configs["gpt-oss"]="configs/models/gpt-oss- openai/gpt-oss-120b"
 
-python3 main.py \
-    --model-config $model_config \
-    --model-path-or-id ${model_path_or_id} \
-    --backend $server_backend \
-    --image $image \
-    --benchmark-client $benchmark_client \
-    --test-plan ${test_plan} \
-    --gpu-devices ${gpu_devices} \
-    --generate-script
+# rm -f scripts/generated/*.sh
 
-echo "Script generation complete!"
+for key in "${!model_and_configs[@]}"; do
+    for server_backend in "${server_backends[@]}"; do
+        for benchmark_client in "${benchmark_clients[@]}"; do
+            IFS=' ' read -r -a values <<< "${model_and_configs[$key]}"
+            model_config="${values[0]}"
+            model_path_or_id="${values[1]}"
+
+            if [[ "$server_backend" == "vllm" ]]; then
+                image=${image_vllm}
+                model_config="${model_config}vllm.yaml"
+            else
+                image=${image_sgl}
+                model_config="${model_config}sglang.yaml"
+            fi
+
+            if [ ! -f "$model_config" ]; then
+                echo "Model config file not found: '${model_config}', skipping..."
+                continue
+            fi
+
+            echo bash tests/run_test.sh ${run_mode} ${model_config} ${model_path_or_id} ${server_backend} ${image} ${benchmark_client} ${test_plan} ${gpu_devices} ${sub_task}
+
+        done
+    done
+done
