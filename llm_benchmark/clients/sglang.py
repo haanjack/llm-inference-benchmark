@@ -11,7 +11,7 @@ from llm_benchmark.utils.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
-SGLANG_IMAGE = "docker.io/rocm/sgl-dev:v0.5.5.post3-rocm700-mi30x-20251123"
+SGLANG_IMAGE = "docker.io/lmsysorg/sglang:v0.5.5.post3-rocm700-mi35x"
 
 class SGLangClient(BenchmarkClientBase):
     """Client for SGLang benchmarking."""
