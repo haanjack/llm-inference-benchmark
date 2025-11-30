@@ -9,7 +9,7 @@ server_backends=("vllm" "sglang")
 benchmark_clients=("vllm" "sglang" "genai-perf")
 
 image_vllm="docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"
-image_sgl="docker.io/rocm/sgl-dev:v0.5.5.post3-rocm700-mi30x-20251123"
+image_sgl="docker.io/lmsysorg/sglang:v0.5.5.post3-rocm700-mi35x"
 
 declare -A model_and_configs
 model_and_configs["llama"]="configs/models/llama- amd/Llama-3.1-8B-Instruct-FP8-KV"
@@ -40,7 +40,7 @@ for key in "${!model_and_configs[@]}"; do
                 continue
             fi
 
-            bash tests/run_test.sh ${run_mode} ${model_config} ${model_path_or_id} ${server_backend} ${image} ${benchmark_client} ${test_plan} ${gpu_devices} ${sub_task}
+            bash tests/run_test.sh ${run_mode} ${model_config} ${model_path_or_id} ${server_backend} ${image} ${benchmark_client} ${gpu_devices} ${test_plan} ${sub_task}
 
         done
     done
