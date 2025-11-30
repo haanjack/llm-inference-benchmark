@@ -53,6 +53,13 @@ class VLLMServer(BenchmarkBase):
         if self._is_dry_run:
             self.temp_compile_config_file = "/tmp/dummy_compile_config.yaml"
             config_path = self.temp_compile_config_file
+
+        # When generating scripts, inline the compilation-config JSON for portability
+        # Only add --compilation-config if the dict is non-empty
+        if self.script_generator is not None:
+            if self._compilation_config:
+                dict_config_str = json.dumps(self._compilation_config, separators=(',', ':'))
+                args.extend(["--compilation-config", dict_config_str])
         else:
             with tempfile.NamedTemporaryFile(
                 mode="w",
@@ -89,32 +96,19 @@ class VLLMServer(BenchmarkBase):
         port_val = "$PORT" if use_script_vars else str(self._port)
 
         # set volume mounts and run server command
-        cmd.extend(
-            [
-                "-v",
-                f"{self._host_cache_dir}:/root/.cache",
-                "-v",
-                f"{self._compile_cache_dir}:/root/.cache/compile_config",
-                "-v",
-                f"{self._aiter_cache_dir}:/root/.aiter",
-                "-v",
-                f"{os.environ.get('HOME')}:{os.environ.get('HOME')}",
-                "-w",
-                f"{os.environ.get('HOME')}",
-                image_val,
-                "vllm",
-                "serve",
-                model_path_val,
-                "--host",
-                "0.0.0.0",
-                "--no-enable-log-requests",
-                "--trust-remote-code",
-                "--tensor-parallel-size",
-                tp_size_val,
-                "--port",
-                port_val,
-            ]
-        )
+        cmd.extend([
+            "-v", f"{self._host_cache_dir}:/root/.cache",
+            "-v", f"{self._compile_cache_dir}:/root/.cache/compile_config",
+            "-v", f"{self._aiter_cache_dir}:/root/.aiter",
+            image_val,
+            "vllm", "serve",
+            model_path_val,
+            "--host", "0.0.0.0",
+            "--no-enable-log-requests",
+            "--trust-remote-code",
+            "--tensor-parallel-size", tp_size_val,
+            "--port", port_val,
+        ])
         if no_enable_prefix_caching:
             cmd.append("--no-enable-prefix-caching")
         cmd.extend(self._build_vllm_args())

@@ -8,7 +8,7 @@ from pathlib import Path
 from llm_benchmark.server import VLLMServer, SGLangServer, RemoteServer
 from llm_benchmark.clients import VLLMClient, SGLangClient, GenAIPerfClient
 from llm_benchmark.runner import BenchmarkRunner
-from llm_benchmark.utils.script_generator import ScriptGenerator
+from llm_benchmark.utils.script_generator import ScriptGenerator, prettify_generated_scripts
 from llm_benchmark.utils.utils import parse_env_file
 
 # Configure logging
@@ -19,6 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+TMP_SCRIPT_DIR = Path("/tmp/generated_benchmark_scripts")
 
 def get_args():
     """Benchmark arguments"""
@@ -82,27 +83,18 @@ def get_args():
     )
 
     # test control
-    parser.add_argument(
-        "--no-warmup", action="store_true", help="no warmup at benchmark start"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Show commands without executing them"
-    )
-    parser.add_argument(
-        "--in-container",
-        action="store_true",
-        help="Run benchmark directly without launching a new container",
-    )
-    parser.add_argument(
-        "--server-test",
-        action="store_true",
-        help="Initialize server only, and show benchmark commands for test",
-    )
-    parser.add_argument(
-        "--generate-script",
-        action="store_true",
-        help="Generate a bash script for the benchmark run.",
-    )
+    parser.add_argument('--no-warmup', action='store_true',
+                        help='no warmup at benchmark start')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='Show commands without executing them')
+    parser.add_argument('--in-container', action='store_true',
+                        help='Run benchmark directly without launching a new container')
+    parser.add_argument('--server-test', action='store_true',
+                        help='Initialize server only, and show benchmark commands for test')
+    parser.add_argument('--generate-script', action='store_true',
+                        help='Generate a bash script for the benchmark run.')
+    parser.add_argument('--generated-script-output-dir', default='scripts/generated',
+                        help='Output directory for generated scripts (default: scripts/generated)')
 
     args = parser.parse_args()
 
@@ -124,12 +116,10 @@ def main():
         if args.generate_script:
             args.dry_run = True  # --generate-script implies --dry-run
             model_config_name = Path(args.model_config).stem
-            script_path = Path(
-                f"scripts/generated/run-{model_config_name}-{args.test_plan}.sh"
-            )
-            script_generator = ScriptGenerator(
-                output_path=script_path, in_container=args.in_container
-            )
+            # Use /tmp directory for intermediate script generation
+            TMP_SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
+            tmp_script_path = TMP_SCRIPT_DIR / f"run-{model_config_name}-{args.test_plan}.sh"
+            script_generator = ScriptGenerator(output_path=tmp_script_path, in_container=args.in_container)
 
         envs = parse_env_file(args.env_file) if args.env_file else {}
 
@@ -211,6 +201,13 @@ def main():
         )
 
         runner.run()
+
+        # After script generation, prettify the scripts
+        if args.generate_script and script_generator:
+            output_dir = Path(args.generated_script_output_dir)
+            model_config_name = Path(args.model_config).stem
+            prettify_generated_scripts(TMP_SCRIPT_DIR, output_dir, model_config_name, args.test_plan)
+
     except Exception as e:
         logger.exception("Benchmark failed: %s", str(e))
         sys.exit(1)

@@ -46,19 +46,4 @@ python3 main.py \
     --gpu-devices ${gpu_devices} \
     --generate-script
 
-
-# Create prettified directory and save prettified scripts there
-echo "Prettifying generated scripts..."
-mkdir -p scripts/generated/prettified
-# Derive model config base name (without extension) to match generated filenames
-model_config_basename=$(basename "$model_config")
-model_config_name="${model_config_basename%.*}"
-for script in scripts/generated/run-${model_config_name}-${test_plan}*.sh; do
-    if [ -f "$script" ] && [[ ! "$script" =~ /prettified/ ]]; then
-        filename=$(basename "$script")
-        output_file="scripts/generated/prettified/$filename"
-        echo "Prettifying: $script -> $output_file"
-        python3 scripts/generated_script_prettifier.py -i "$script" -o "$output_file"
-    fi
-done
-echo "All scripts prettified and saved to scripts/generated/prettified/"
+echo "Script generation complete!"
