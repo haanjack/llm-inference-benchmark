@@ -2,7 +2,6 @@
 
 run_mode="profile" # Options: "" | "profile" | "dry_run" | "generate_script"
 test_plan="test"
-gpu_devices="0"
 sub_task=""
 
 server_backends=("vllm" "sglang")
@@ -12,11 +11,11 @@ image_vllm="docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"
 image_sgl="docker.io/lmsysorg/sglang:v0.5.5.post3-rocm700-mi35x"
 
 declare -A model_and_configs
-model_and_configs["llama"]="configs/models/llama- amd/Llama-3.1-8B-Instruct-FP8-KV"
-model_and_configs["deepseek"]="configs/models/deepseek- deepseek-ai/DeepSeek-R1"
-model_and_configs["qwen"]="configs/models/qwen- Qwen/Qwen3-32B"
-model_and_configs["qwen-moe"]="configs/models/qwen-moe- Qwen/Qwen3-235B-A22B"
-model_and_configs["gpt-oss"]="configs/models/gpt-oss- openai/gpt-oss-120b"
+model_and_configs["llama"]="configs/models/llama- amd/Llama-3.1-8B-Instruct-FP8-KV 0"
+model_and_configs["deepseek"]="configs/models/deepseek- deepseek-ai/DeepSeek-R1-0528 0,1,2,3,4,5,6,7"
+model_and_configs["qwen"]="configs/models/qwen- Qwen/Qwen3-32B 0"
+model_and_configs["qwen-moe"]="configs/models/qwen-moe- Qwen/Qwen3-235B-A22B 0,1,2,3"
+model_and_configs["gpt-oss"]="configs/models/gpt-oss- openai/gpt-oss-120b 0"
 
 # rm -f scripts/generated/*.sh
 
@@ -26,6 +25,7 @@ for key in "${!model_and_configs[@]}"; do
             IFS=' ' read -r -a values <<< "${model_and_configs[$key]}"
             model_config="${values[0]}"
             model_path_or_id="${values[1]}"
+	        gpu_devices="${values[2]}"
 
             if [[ "$server_backend" == "vllm" ]]; then
                 image=${image_vllm}
