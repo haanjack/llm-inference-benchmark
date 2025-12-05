@@ -281,7 +281,7 @@ class BenchmarkRunner:
 
     def _format_result_for_console(self, values: List[str]) -> str:
         if len(values) != len(self._columns): # pyright: ignore
-            logger.warning("Mismatch between result values and column definitions. {len(values)} values vs {len(self._columns)} columns.")
+            logger.warning(f"Mismatch between result values and column definitions. {len(values)} values vs {len(self._columns)} columns.")
             return ' '.join(values)
         formatted_values = [os.path.basename(values[0]).ljust(self._columns[0][1])] # pyright: ignore
         formatted_values.extend(val.rjust(width) for val, (_, width) in zip(values[1:], self._columns[1:])) # pyright: ignore

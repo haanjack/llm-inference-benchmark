@@ -222,19 +222,6 @@ class VLLMServer(BenchmarkBase):
                 return True
         return False
 
-    def _warmup_server(self):
-        if self._is_dry_run or self._is_no_warmup:
-            logger.info("Skipping warmup.")
-            return
-
-        logger.info("Warming up the server...")
-        warmup_cmd = ["curl", f"http://localhost:{self.port}/v1/models"]
-        start_time = time.time()
-        subprocess.run(
-            warmup_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
-        )
-        logger.info("Warmup complete in %.2f seconds.", time.time() - start_time)
-
     def cleanup(self):
         """Cleanup resources."""
         if self._in_container:

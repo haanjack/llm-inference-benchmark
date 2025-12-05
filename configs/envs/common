@@ -3,7 +3,9 @@
 # HF_TOKEN=
 
 # Host Environments
-OMP_NUM_THREADS=32
+# Set the number of OpenMP threads. Default is 32 for typical workloads;
+# override by exporting OMP_NUM_THREADS before sourcing this file.
+OMP_NUM_THREADS=${OMP_NUM_THREADS:-32}
 NCCL_MIN_NCHANNELS=112
 
 # Model Stored Path

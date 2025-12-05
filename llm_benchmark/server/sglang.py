@@ -3,9 +3,6 @@ import os
 import subprocess
 from pathlib import Path
 from typing import List, Optional
-import random
-import string
-import requests
 import yaml
 
 
@@ -174,35 +171,6 @@ class SGLangServer(BenchmarkBase):
             self.server_process = subprocess.Popen(
                 cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env
             )
-
-    def _warmup_server(self, num_warmup_requests=5, prompt_length=16):
-        if self._is_dry_run or self._is_no_warmup:
-            logger.info("Skipping warmup.")
-            return
-
-        logger.info(
-            "Warming up the SGLang server with %d requests...", num_warmup_requests
-        )
-        for i in range(num_warmup_requests):
-            # Generate a random prompt
-            prompt = "".join(
-                random.choices(string.ascii_letters + string.digits, k=prompt_length)
-            )
-            payload = {
-                "prompt": prompt,
-                "max_tokens": 16,
-            }
-            try:
-                response = requests.post(
-                    f"http://localhost:{self._port}/v1/completions",
-                    json=payload,
-                    timeout=60,
-                )
-                response.raise_for_status()
-                logger.info("Warmup request %d successful.", i + 1)
-            except requests.exceptions.RequestException as e:
-                logger.warning("Warmup request %d failed: %s", i + 1, e)
-        logger.info("Warmup complete.")
 
     def cleanup(self):
         """Cleanup resources."""

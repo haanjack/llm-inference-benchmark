@@ -48,7 +48,7 @@ class SGLangClient(BenchmarkClientBase):
                     self.server.container_runtime, "run", "--rm",
                     "--network=host",
                     "-v", f"{Path.cwd()}:{Path.cwd()}",
-                    "-v", f"{self.server._model_path}:{model_path_val}",
+                    "-v", f"{self.server.get_host_model_path()}:{model_path_val}",
                     client_image,
                 ])
             else:

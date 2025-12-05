@@ -6,8 +6,11 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from urllib.parse import urlparse
-import yaml
+import random
+import string
 import requests
+import yaml
+import dotenv
 from huggingface_hub import snapshot_download
 
 from llm_benchmark.utils.script_generator import ScriptGenerator
@@ -143,6 +146,16 @@ class BenchmarkBase:
         if os.environ.get('HF_HOME'):
             cmd.extend(["-v", f"{os.environ.get('HF_HOME')}:/root/.cache/huggingface"])
 
+        # Load .env file if exists
+        dotenv.load_dotenv()
+        env_path = Path(".env")
+        if env_path.exists():
+            dotenv.load_dotenv(dotenv_path=env_path)
+            for key, value in dotenv.dotenv_values(env_path).items():
+                if key in ["HF_HOME", "HF_TOKEN"]:
+                    continue
+                cmd.extend(["-e", f"{key}={value}"])
+
         for key in self._common_envs:
             cmd.extend(["-e", f"{key}={self._common_envs[key]}"])
         for key, value in self._env_vars.items():
@@ -242,6 +255,36 @@ class BenchmarkBase:
         """Get the host model path. Used for host mounts for container execution."""
         return str(self._model_path)
 
+    def _warmup_server(self, num_warmup_requests=5, prompt_length=16):
+        if self._is_dry_run or self._is_no_warmup:
+            logger.info("Skipping warmup.")
+            return
+
+        logger.info(
+            "Warming up the server with %d requests...", num_warmup_requests
+        )
+        start_now = time.time()
+        for i in range(num_warmup_requests):
+            # Generate a random prompt
+            prompt = "".join(
+                random.choices(string.ascii_letters + string.digits, k=prompt_length)
+            )
+            payload = {
+                "prompt": prompt,
+                "max_tokens": 16,
+            }
+            try:
+                response = requests.post(
+                    f"http://localhost:{self._port}/v1/completions",
+                    json=payload,
+                    timeout=60,
+                )
+                response.raise_for_status()
+                logger.info("Warmup request %d successful.", i + 1)
+            except requests.exceptions.RequestException as e:
+                logger.warning("Warmup request %d failed: %s", i + 1, e)
+        logger.info("Warmup complete in %.2f seconds.", time.time() - start_now)
+
     def _is_server_process_alive(self) -> bool:
         if self._is_dry_run:
             return True
@@ -336,7 +379,7 @@ class BenchmarkBase:
     @property
     def model_path_or_id(self) -> str:
         """Returns the model path or ID."""
-        return self.model_path_or_id
+        return self._model_path_or_id
 
     @property
     def exp_tag(self) -> str:
@@ -357,7 +400,7 @@ class BenchmarkBase:
     def gpu_devices(self) -> str:
         """Returns the GPU devices string."""
         if not hasattr(self, '_gpu_devices'):
-            return -1
+            return ""
         return self._gpu_devices
 
     @property
