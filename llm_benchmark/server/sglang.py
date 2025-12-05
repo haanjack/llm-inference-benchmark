@@ -139,7 +139,9 @@ class SGLangServer(BenchmarkBase):
 
         logger.info("Started to initialize sglang server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
-
+        logger.info("Environment variables:")
+        for key, value in self._env_vars.items():
+            logger.info(" - %s: %s", key, value)
         with open(self.server_log_path, "a", encoding="utf-8") as f:
             self._log_process = subprocess.Popen(
                 [self._container_runtime, "logs", "-f", self._container_name],

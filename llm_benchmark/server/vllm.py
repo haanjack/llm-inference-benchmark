@@ -177,7 +177,9 @@ class VLLMServer(BenchmarkBase):
 
         logger.info("Started to initialize vllm server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
-
+        logger.info("Environment variables:")
+        for key, value in self._env_vars.items():
+            logger.info(" - %s: %s", key, value)
         with open(self.server_log_path, "a", encoding="utf-8") as f:
             self._log_process = subprocess.Popen(
                 [self._container_runtime, "logs", "-f", self._container_name],
@@ -203,6 +205,8 @@ class VLLMServer(BenchmarkBase):
             del server_env["BENCHMARK_BASE_PORT"]
 
         self.server_log_path.parent.mkdir(parents=True, exist_ok=True)
+        for key, value in server_env.items():
+            logger.info("> Server env var: %s=%s", key, value)
         with open(self.server_log_path, "w", encoding="utf-8") as f:
             self.server_process = subprocess.Popen(
                 cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env
