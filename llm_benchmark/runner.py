@@ -38,7 +38,7 @@ class BenchmarkRunner:
             ("Req req/s", 10), ("Out Tok/s", 10), ("Total Tok/s", 10) # 23
         ]
         self._csv_headers = [
-            "model_config", "tp_size", "request_rate", "num_prompts", "concurrency", # 5
+            "tp_size", "request_rate", "num_prompts", "concurrency", # 5
             "input_length", "output_length", "test_time_s", "ttft_mean_ms", "ttft_median_ms", # 10
             "ttft_p99_ms", "tpot_mean_ms", "tpot_median_ms", "tpot_p99_ms", "itl_mean_ms", # 15
             "itl_median_ms", "itl_p99_ms", "e2el_mean_ms", "e2el_median_ms", "e2el_p99_ms", # 20
@@ -62,6 +62,8 @@ class BenchmarkRunner:
         if not self.client.results_file.exists():
             with open(self.client.results_file, 'w', encoding='utf-8') as f:
                 f.write(','.join(self._csv_headers) + '\n')
+            with open(self.client.total_results_file, 'w', encoding='utf-8') as f:
+                f.write('model_config,' + ','.join(self._csv_headers) + '\n')
 
     def _print_benchmark_info(self):
         logger.info("Benchmark plan: %s", self._test_plan)

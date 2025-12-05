@@ -97,3 +97,8 @@ class BenchmarkClientBase(ABC):
     def results_file(self) -> Path:
         """Get the path to the results CSV file."""
         return self._results_file
+
+    @property
+    def total_results_file(self) -> Path:
+        """Get the path to the total results CSV file."""
+        return self._total_results_file
