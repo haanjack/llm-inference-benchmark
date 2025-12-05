@@ -71,7 +71,7 @@ class VLLMClient(BenchmarkClientBase):
         cmd.extend([
             "vllm", "bench", "serve",
             "--model", model_path_val,
-            "--backend", self.server.name,
+            "--backend", "openai",
             "--host", self.server.addr, "--port", str(self.server.port),
             "--dataset-name", dataset_name_val,
             "--ignore-eos",

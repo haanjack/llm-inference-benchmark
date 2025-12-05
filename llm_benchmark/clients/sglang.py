@@ -57,7 +57,7 @@ class SGLangClient(BenchmarkClientBase):
             "python3", "-m", "sglang.bench_serving",
             "--host", self.server.addr,
             "--port", str(self.server.port),
-            "--backend", self.server.name,
+            "--backend", "openai",
             "--tokenizer", model_path_val,
             "--dataset-name", dataset_name,
             "--request-rate", request_rate_val,
