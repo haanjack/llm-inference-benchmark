@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from llm_benchmark.server import VLLMServer, SGLangServer, RemoteServer
-from llm_benchmark.clients import VLLMClient, SGLangClient, GenAIPerfClient
+from llm_benchmark.clients import VLLMClient, SGLangClient, GenAIPerfClient, EvaluationClient
 from llm_benchmark.runner import BenchmarkRunner
 from llm_benchmark.utils.script_generator import ScriptGenerator, prettify_generated_scripts
 from llm_benchmark.utils.utils import parse_env_file
@@ -96,6 +96,23 @@ def get_args():
     parser.add_argument('--generated-script-output-dir', default='scripts/generated',
                         help='Output directory for generated scripts (default: scripts/generated)')
 
+    # evaluation configuration - chain of clients
+    parser.add_argument(
+        '--run-evaluation',
+        action='store_true',
+        help='Run model evaluation after benchmark (chain of clients)'
+    )
+    parser.add_argument(
+        '--evaluation-plan',
+        default='default',
+        help='Evaluation plan YAML file in configs/evaluation_plans/ (without .yaml)'
+    )
+    parser.add_argument(
+        '--evaluation-cache-dir',
+        default=None,
+        help='Cache directory for evaluation datasets (default: ~/.cache/huggingface)'
+    )
+
     args = parser.parse_args()
 
     if args.endpoint:
@@ -123,35 +140,25 @@ def main():
 
         envs = parse_env_file(args.env_file) if args.env_file else {}
 
-        if args.endpoint:
-            server_kwargs = {"endpoint": args.endpoint}
-        else:
-            server_kwargs = {
-                "image": args.image,
-                "model_config": args.model_config,
-                "model_path_or_id": args.model_path_or_id,
-                "model_root_dir": args.model_root_dir,
-                "gpu_devices": args.gpu_devices,
-                "num_gpus": args.num_gpus,
-                "arch": args.arch,
-                "dry_run": args.dry_run,
-                "no_warmup": args.no_warmup,
-                "in_container": args.in_container,
-                "test_plan": args.test_plan,
-                "envs": envs,
-            }
-
         # Common arguments for all server types
-        server_kwargs.update(
-            {
-                "image": args.image,
-                "model_config": args.model_config,
-                "model_path_or_id": args.model_path_or_id,
-                "num_gpus": args.num_gpus,
-                "dry_run": args.dry_run,
-                "script_generator": script_generator,
-            }
-        )
+        server_kwargs = {
+            "image": args.image,
+            "model_config": args.model_config,
+            "model_path_or_id": args.model_path_or_id,
+            "model_root_dir": args.model_root_dir,
+            "gpu_devices": args.gpu_devices,
+            "num_gpus": args.num_gpus,
+            "arch": args.arch,
+            "dry_run": args.dry_run,
+            "no_warmup": args.no_warmup,
+            "in_container": args.in_container,
+            "test_plan": args.test_plan,
+            "envs": envs,
+            "script_generator": script_generator,
+        }
+
+        if args.endpoint:
+            server_kwargs["endpoint"] = args.endpoint
 
         logger.info("Model Name: %s", args.model_path_or_id)
         logger.info("GPU devices: %s", args.gpu_devices)
@@ -192,9 +199,25 @@ def main():
         else:
             raise ValueError(f"Unknown benchmark client: {args.benchmark_client}")
 
+        # Create evaluation client if requested (chain of clients pattern)
+        evaluation_client = None
+        if args.run_evaluation:
+            logger.info("Evaluation: ENABLED (chained after benchmarks)")
+            logger.info("Evaluation Plan: %s", args.evaluation_plan)
+            if args.evaluation_cache_dir:
+                logger.info("Evaluation Cache Dir: %s", args.evaluation_cache_dir)
+            evaluation_client = EvaluationClient(
+                server=server,
+                is_dry_run=args.server_test or args.dry_run,
+                script_generator=script_generator,
+                evaluation_plan=args.evaluation_plan,
+                cache_dir=args.evaluation_cache_dir,
+            )
+
         runner = BenchmarkRunner(
             server=server,
             client=client,
+            evaluation_client=evaluation_client,  # ← Chained evaluation client
             test_plan=args.test_plan,
             sub_tasks=args.sub_tasks,
             is_dry_run=args.server_test,

@@ -2,7 +2,7 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import itertools
 import yaml
 
@@ -13,16 +13,18 @@ from llm_benchmark.utils.script_generator import ScriptGenerator
 logger = logging.getLogger(__name__)
 
 class BenchmarkRunner:
-    """Benchmark runner."""
+    """Benchmark runner with support for chained clients (e.g., benchmark + evaluation)."""
     def __init__(self,
                 server: BenchmarkBase,
                 client: BenchmarkClientBase,
                 test_plan: str,
                 sub_tasks: List[str] = None,
                 is_dry_run: bool = False,
-                script_generator: ScriptGenerator = None):
+                script_generator: ScriptGenerator = None,
+                evaluation_client: Optional[BenchmarkClientBase] = None):
         self.server = server
         self.client = client
+        self.evaluation_client = evaluation_client
         self._test_plan = test_plan
         self._sub_tasks = sub_tasks
         self._is_dry_run = server.is_dry_run or is_dry_run
@@ -246,6 +248,13 @@ class BenchmarkRunner:
         try:
             self._print_header()
             self._run_benchmark(test_args, test_plans)
+
+            # Run evaluation client if provided (chain of clients pattern)
+            if self.evaluation_client and not self._is_dry_run:
+                logger.info("=" * 60)
+                logger.info("Running chained evaluation client")
+                logger.info("=" * 60)
+                self.evaluation_client.run()
         finally:
             self.server.cleanup()
             if not self._is_dry_run:
