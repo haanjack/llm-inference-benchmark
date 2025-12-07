@@ -156,9 +156,10 @@ Following command is an example of benchmarks. (server: `vllm` and client: `vllm
 
 ```bash
 python3 main.py \
-  --model-config configs/models/llama.yaml \
+  --model-config configs/models/llama-vllm.yaml \
   --model-path ~/models/amd/Llama-3.3-70B-Instruct-FP8-KV \
   --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103 \
+  --backend vllm \
   --test-plan test \
   --benchmark-client vllm \
   --gpu-devices=0
@@ -168,9 +169,10 @@ python3 main.py \
 
 ```bash
 python3 main.py \
-  --model-config configs/models/gpt-oss.yaml \
+  --model-config configs/models/gpt-oss-vllm.yaml \
   --model-path ~/models/openai/gpt-oss-120b \
   --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --backend vllm \
   --test-plan test \
   --benchmark-client vllm \
   --gpu-devices=0
@@ -180,9 +182,10 @@ python3 main.py \
 
 ```bash
 python3 main.py \
-  --model-config configs/models/deepseek.yaml \
+  --model-config configs/models/deepseek-vllm.yaml \
   --model-path ~/models/deepseek-ai/DeepSeek-R1-0528 \
   --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --backend vllm \
   --test-plan test \
   --benchmark-client vllm \
   --gpu-devices=0,1,2,3,4,5,6,7
@@ -192,9 +195,10 @@ python3 main.py \
 
 ```bash
 python main.py \
-  --model-config configs/models/default.yaml \
+  --model-config configs/models/default-vllm.yaml \
   --model-path ~/models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
   --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --backend vllm \
   --test-plan test \
   --benchmark-client vllm \
   --gpu-devices 0
