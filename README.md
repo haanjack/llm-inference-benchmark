@@ -7,6 +7,8 @@ This is benchmark script for extensive inference tests for various setups. This 
  - iteration based num prompts control
  - request rate control
  - Execution support for `docker`, `podman`, and direct in-container runs
+ - multiple inference server: vllm, sglang, and remote endpoint
+ - multiple benchmark clients: vllm, sglang, and genai-perf
 
 In addition, this benchmark test tries to obey [AMD's vLLM V1 performance optimization](https://rocm.docs.amd.com/en/develop/how-to/rocm-for-ai/inference-optimization/vllm-optimization.html) guide and validation.
 
@@ -22,7 +24,7 @@ The script supports two main execution modes:
 
     ```bash
     # Example of running inside a pre-configured container
-    python run_vllm_benchmark.py --in-container --model-config ...
+    python main.py --in-container --model-config ...
     ```
 
 ## Basic usage of test
@@ -30,10 +32,12 @@ The script supports two main execution modes:
 The following command shows how to use this.
 
 ```bash
-python run_vllm_benchmark.py \
-    --model-config configs/models/default.yaml \
-    --model-path ~/models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
-    --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+python main.py \
+    --model-config configs/models/default-vllm.yaml \
+    --model-path-or-id Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
+    --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103 \
+    --backend vllm \
+    --benchmark-client vllm \
     --test-plan test \
     --gpu-devices 0
 ```
@@ -44,6 +48,7 @@ There are several interesting argument: `model-config` and `test-plan`. These ar
 Each model has optimal configuration and settings. To support this divergency, this benchmark script provide individual model config yaml file.
 
 Following snippet shows the basic format of the model config file.
+
 ```yaml
 # Default model configuration
 
@@ -52,11 +57,13 @@ env:
   # HUGGING_FACE_HUB_TOKEN: "your_token_here"
   VLLM_ROCM_USE_AITER: 1
 
-vllm_server_args:
-  # Arguments for the vLLM server
+  SGLANG_USE_AITER: 1
+
+server_args:
+  ## Arguments for the vLLM server
   quantization: fp8
   kv-cache-dtype: auto
-  
+
   # Add other vLLM server arguments here
   # example:
   # max_model_len: 1024
@@ -66,6 +73,15 @@ vllm_server_args:
   # block-size: 64
   # no-enable-prefix-caching: true
   # async-scheduling: true
+
+  ## Arguments for the SGLang server
+  log-level: "info"
+  # mem-fraction-static: 0.8
+  # disable-raix-cache: true
+  chunked-prefill-size: 196608
+  max-prefill-tokens: 196608
+  num-continuous-decode-steps: 4
+  cuda-graph-max-bs: 128
 
 compilation_config:
   cudagraph_mode: "FULL_AND_PIECEWISE"
@@ -97,10 +113,7 @@ test_scenarios:
     input_length: 1024
     output_length: 1024
     num_iteration: 8
-    batch_size: 256
 ```
-
-`batch_size` means vllm engine's batch size and it is `max-num-seqs` in vllm.
 
 There are several test cases in `configs/benchmark_plans`.
  - [test](./configs/benchmark_plans/test.yaml)
@@ -124,9 +137,9 @@ There are multiple methods to specify benchmark model path for `--model-path`.
 
 ## Benchmark Result
 
-For all the benchmark results are parsed from each benchmark log and consolidated in `logs/<model name>/<docker-tag>/result_list.csv` file.
+For all the benchmark results are parsed from each benchmark log and consolidated in `logs/<model name>/<docker-tag>/results_<server>_<client>.csv` file.
 
-This is an exmaple of the `result_list.csv` file.
+This is an exmaple of the `results_<server>_<client>.csv` file.
 ```csv
 env,TP Size,Request Rate,Num. Iter,Client Count,MaxNumSeqs,Input Length,Output Length,Test Time,Mean TTFT (ms),Median TTFT (ms),P99 TTFT (ms),Mean TPOT (ms),Median TPOT (ms),P99 TPOT (ms),Mean ITL (ms),Median ITL (ms),P99 ITL (ms),Mean E2EL (ms),Median E2EL (ms),P99 E2EL (ms),Request Throughput (req/s),Output token throughput (tok/s),Total Token throughput (tok/s)
 default,1,0,4,256,4,512,128,2.32,31.75,35.30,36.81,4.30,4.28,4.39,4.30,4.27,4.75,577.79,578.79,580.43,6.91,884.27,4414.46
@@ -137,54 +150,94 @@ default,1,0,4,256,8,512,128,2.48,35.05,33.35,51.13,4.59,4.57,4.74,4.59,4.50,5.70
 All the benchmark logs are stored in `logs/<model name>/<docker-tag>` directory following the model name and docker images tags. And single benchmark logs are stored in `<model-config>-t<tp size>/<run-configs>`.
 
 ## Example
-Following command is an example of benchmarks.
+Following command is an example of benchmarks. (server: `vllm` and client: `vllm`)
 
 ### LLaMA3.3 70B
 
 ```bash
-python3 run_vllm_benchmark.py \
-  --model-config configs/models/llama.yaml \
+python3 main.py \
+  --model-config configs/models/llama-vllm.yaml \
   --model-path ~/models/amd/Llama-3.3-70B-Instruct-FP8-KV \
-  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103 \
+  --backend vllm \
   --test-plan test \
+  --benchmark-client vllm \
   --gpu-devices=0
 ```
 
 ### GPT-OSS-120B
 
 ```bash
-python3 run_vllm_benchmark.py \
-  --model-config configs/models/gpt-oss.yaml \
+python3 main.py \
+  --model-config configs/models/gpt-oss-vllm.yaml \
   --model-path ~/models/openai/gpt-oss-120b \
-  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --backend vllm \
   --test-plan test \
+  --benchmark-client vllm \
   --gpu-devices=0
 ```
 
 ### DeepSeek R1
 
 ```bash
-python3 run_vllm_benchmark.py \
-  --model-config configs/models/deepseek.yaml \
+python3 main.py \
+  --model-config configs/models/deepseek-vllm.yaml \
   --model-path ~/models/deepseek-ai/DeepSeek-R1-0528 \
-  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --backend vllm \
   --test-plan test \
+  --benchmark-client vllm \
   --gpu-devices=0,1,2,3,4,5,6,7
 ```
 
 ### Qwen3 30B A3B FP8
 
 ```bash
-python run_vllm_benchmark.py \
-  --model-config configs/models/default.yaml \
+python main.py \
+  --model-config configs/models/default-vllm.yaml \
   --model-path ~/models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
-  --vllm-image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.10.2_20251006 \
+  --backend vllm \
   --test-plan test \
+  --benchmark-client vllm \
   --gpu-devices 0
 ```
 
 
 ## Other Features
+
+### Generate Standalone Scripts
+
+You can generate self-contained benchmark scripts that can be shared with others:
+
+```bash
+# Generate a script for your benchmark configuration
+python main.py \
+    --model-config configs/models/default-vllm.yaml \
+    --model-path-or-id Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 \
+    --image docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103 \
+    --backend vllm \
+    --benchmark-client vllm \
+    --test-plan test \
+    --gpu-devices 0 \
+    --generate-script
+
+# Generate specific scenarios only
+python main.py ... --test-plan sample --sub-tasks 1k1k 8k1k --generate-script
+
+# Make the script more shareable by prettifying it
+python scripts/generated_script_prettifier.py scripts/generated/run-default-vllm-test-<sub-task>.sh
+
+```
+
+The prettified script:
+- Replaces hardcoded paths with `$HOME` variable for portability
+- Extracts test parameters into clear variables at the top
+- Removes internal cache mounts
+- Adds helpful documentation comments
+- Makes it easy to customize and share
+
 ### Manual test
 To ease various testing, this script provides `--dry-run` mode. With this option, benchmark script prints out the command which will be used in the benchmark. You can copy the output and start own test.
 
@@ -222,3 +275,9 @@ python tools/profiler/visualize_layerwise_profile.py \\
 1. Benchmark with other parallelism
 1. Writing graph drawing code
 1. Benchmark with PD disaggregation
+
+
+# TODO:2
+1. supprot sglang / gen-ai perf
+1. warmup by this suite
+1. total results with jsonl

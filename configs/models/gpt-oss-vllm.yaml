@@ -12,7 +12,7 @@ arch_specific_params:
   mi355x:
     VLLM_ROCM_USE_AITER_FUSED_MOE_A16W4: 1
 
-vllm_server_args:
+server_args:
   quantization: auto
   kv-cache-dtype: auto
 

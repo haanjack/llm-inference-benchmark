@@ -3,10 +3,10 @@
 # HF_TOKEN=
 
 # Host Environments
-SAFETENSORS_FAST_GPU=1
-OMP_NUM_THREADS=128
+# Set the number of OpenMP threads. Default is 32 for typical workloads;
+# override by exporting OMP_NUM_THREADS before sourcing this file.
+OMP_NUM_THREADS=${OMP_NUM_THREADS:-32}
 NCCL_MIN_NCHANNELS=112
-HIP_FORCE_DEV_KERNARG=1
 
 # Model Stored Path
 HF_HOME=${HOME}/models

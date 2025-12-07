@@ -2,3 +2,6 @@ logs/**/*
 slogs/**/*
 .vscode/**/*
 vllm_cache/**/*
+sglang_cache/**/*
+**/*/__pycache__/**/*
+scripts/generated/**/*
