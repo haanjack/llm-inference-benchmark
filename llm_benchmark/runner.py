@@ -62,6 +62,7 @@ class BenchmarkRunner:
         if not self.client.results_file.exists():
             with open(self.client.results_file, 'w', encoding='utf-8') as f:
                 f.write(','.join(self._csv_headers) + '\n')
+        if not self.client.total_results_file.exists():
             with open(self.client.total_results_file, 'w', encoding='utf-8') as f:
                 f.write('model_config,' + ','.join(self._csv_headers) + '\n')
 
