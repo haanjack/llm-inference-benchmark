@@ -1,0 +1,47 @@
+# Default evaluation plan with task-specific few-shot configurations
+# Based on standard benchmarking practices from model technical reports
+
+tasks:
+  mmlu:
+    num_fewshot: 5 # Standard: 5-shot for MMLU
+    batch_size: 8
+    timeout: 3600 # 1 hour
+
+  truthfulqa:
+    num_fewshot: 0 # Standard: 0-shot for TruthfulQA (measures inherent truthfulness)
+    batch_size: 16
+    timeout: 1800 # 30 minutes
+
+  gsm8k:
+    num_fewshot: 8 # Standard: 8-shot for GSM8K (math reasoning)
+    batch_size: 4
+    timeout: 3600 # 1 hour
+
+  arc_challenge:
+    num_fewshot: 25 # Standard: 25-shot for ARC
+    batch_size: 8
+    timeout: 2400 # 40 minutes
+
+  hellaswag:
+    num_fewshot: 10 # Standard: 10-shot for HellaSwag
+    batch_size: 16
+    timeout: 1800 # 30 minutes
+
+  humaneval:
+    num_fewshot: 0 # Standard: 0-shot for HumanEval (measures raw capability)
+    batch_size: 1 # One at a time: code generation is slow
+    timeout: 3600 # 1 hour
+
+  winogrande:
+    num_fewshot: 5 # Standard: 5-shot for Winogrande
+    batch_size: 16
+    timeout: 1800 # 30 minutes
+
+  strategyqa:
+    num_fewshot: 6 # Standard: 6-shot for StrategyQA
+    batch_size: 8
+    timeout: 2400 # 40 minutes
+
+global_settings:
+  log_samples: true
+  output_path: "results/evaluations"
