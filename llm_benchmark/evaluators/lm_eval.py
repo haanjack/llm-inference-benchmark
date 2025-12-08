@@ -3,6 +3,7 @@
 import json
 import logging
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -40,6 +41,9 @@ class LMEvalEvaluator(BaseEvaluator):
             tasks: Dict of task_name -> {num_fewshot, batch_size, timeout, etc.}
                    Example: {"mmlu": {"num_fewshot": 5, "batch_size": 8}}
             cache_dir: Optional cache directory for datasets (default: ~/.cache/huggingface)
+
+        Raises:
+            RuntimeError: If lm-eval-harness is not installed
         """
         # Extract task names from the config
         task_names = list(tasks.keys())
@@ -47,12 +51,35 @@ class LMEvalEvaluator(BaseEvaluator):
         self.task_configs = tasks
         self.cache_dir = cache_dir
 
+        # Check if lm_eval is installed
+        self._check_lm_eval_installed()
+
+    def _check_lm_eval_installed(self):
+        """Check if lm-eval-harness is installed.
+
+        Raises:
+            RuntimeError: If lm_eval command is not found
+        """
+        if not shutil.which("lm_eval"):
+            error_msg = (
+                "lm-eval-harness is not installed or not in PATH.\n"
+                "Please install it with:\n"
+                "  pip install lm-eval>=0.4.0\n"
+                "Or add it to requirements.txt and run:\n"
+                "  pip install -r requirements.txt"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        logger.info("lm-eval-harness found: %s", shutil.which("lm_eval"))
+
     def evaluate(self) -> Dict[str, Any]:
         """Run lm-eval-harness evaluation with per-task configuration."""
         results = {
             "model": self.model_name,
             "endpoint": self.endpoint,
             "evaluator": "lm-eval-harness",
+            "lm_eval_path": shutil.which("lm_eval"),
             "tasks": {},
         }
 
@@ -85,22 +112,23 @@ class LMEvalEvaluator(BaseEvaluator):
             "lm_eval",
             "--model",
             "openai-chat-completions",
-            "--model-args",
+            "--model_args",
             f"model={self.model_name},base_url={self.endpoint}",
             "--tasks",
             task,
-            "--num-fewshot",
+            "--num_fewshot",
             str(num_fewshot),
-            "--batch-size",
+            "--batch_size",
             str(batch_size),
-            "--output-path",
+            "--output_path",
             "/tmp/lm_eval_results",
-            "--log-samples",
+            "--log_samples",
         ]
 
         # Add cache directory if specified
         if self.cache_dir:
-            cmd.extend(["--cache-dir", self.cache_dir])
+            cmd.extend(["--cache_requests", "true"])
+            # Note: lm-eval uses HF_HOME or default cache automatically
 
         try:
             logger.debug("Executing: %s", " ".join(cmd))
@@ -122,6 +150,7 @@ class LMEvalEvaluator(BaseEvaluator):
                     "status": "failed",
                     "error_type": error_type,
                     "error": result.stderr,
+                    "stdout": result.stdout,
                     "config": config,
                 }
 
@@ -138,7 +167,7 @@ class LMEvalEvaluator(BaseEvaluator):
                 "note": "May be caused by dataset download",
             }
         except Exception as e:
-            logger.error("Task %s error: %s", task, str(e))
+            logger.exception("Task %s error: %s", task, str(e))
             return {"status": "error", "error": str(e), "config": config}
 
     def _classify_error(self, stderr: str) -> str:
@@ -153,29 +182,32 @@ class LMEvalEvaluator(BaseEvaluator):
         stderr_lower = stderr.lower()
 
         # Check for common error patterns
-        if any(pattern in stderr_lower for pattern in [
-            "connection", "network", "timeout", "timed out"
-        ]):
+        if any(
+            pattern in stderr_lower
+            for pattern in ["connection", "network", "timeout", "timed out"]
+        ):
             return "network_error"
 
-        if any(pattern in stderr_lower for pattern in [
-            "dataset", "download", "cache", "hub"
-        ]):
+        if any(
+            pattern in stderr_lower for pattern in ["dataset", "download", "cache", "hub"]
+        ):
             return "dataset_error"
 
-        if any(pattern in stderr_lower for pattern in [
-            "authentication", "token", "unauthorized"
-        ]):
+        if any(
+            pattern in stderr_lower
+            for pattern in ["authentication", "token", "unauthorized"]
+        ):
             return "auth_error"
 
-        if any(pattern in stderr_lower for pattern in [
-            "not found", "404", "no such file"
-        ]):
+        if any(
+            pattern in stderr_lower for pattern in ["not found", "404", "no such file"]
+        ):
             return "not_found_error"
 
-        if any(pattern in stderr_lower for pattern in [
-            "out of memory", "oom", "cuda out of memory"
-        ]):
+        if any(
+            pattern in stderr_lower
+            for pattern in ["out of memory", "oom", "cuda out of memory"]
+        ):
             return "oom_error"
 
         return "unknown_error"

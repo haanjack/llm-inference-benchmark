@@ -18,6 +18,9 @@ class EvaluationClient(BenchmarkClientBase):
 
     This client runs after performance benchmarks to validate model outputs
     and measure accuracy, reasoning capability, and other quality metrics.
+
+    Requirements:
+        - lm-eval-harness must be installed: pip install lm-eval>=0.4.0
     """
 
     def __init__(
@@ -68,6 +71,9 @@ class EvaluationClient(BenchmarkClientBase):
 
         Returns:
             Dictionary with evaluation results
+
+        Raises:
+            RuntimeError: If lm-eval-harness is not installed
         """
         logger.info("=" * 60)
         logger.info("Starting Model Evaluation")
@@ -91,6 +97,7 @@ class EvaluationClient(BenchmarkClientBase):
             logger.info("Evaluation Endpoint: %s", endpoint)
             logger.info("Model: %s", model_name)
 
+            # EvaluationRunner will check if lm_eval is installed
             self.evaluator_runner = EvaluationRunner(
                 model_name=model_name,
                 endpoint=endpoint,
@@ -111,6 +118,18 @@ class EvaluationClient(BenchmarkClientBase):
 
             return results
 
+        except RuntimeError as e:
+            # Handle lm-eval not installed error
+            logger.error("=" * 60)
+            logger.error("EVALUATION FAILED: %s", str(e))
+            logger.error("=" * 60)
+            return {
+                "status": "error",
+                "error_type": "installation_error",
+                "error": str(e),
+                "evaluation_plan": self.evaluation_plan,
+                "model": self.server.model_name
+            }
         except Exception as e:
             logger.error("Evaluation failed: %s", str(e), exc_info=True)
             return {
