@@ -2,14 +2,25 @@
 
 ## Installation
 
-### Install lm-eval-harness
+### Automatic Installation (Recommended)
+
+The evaluator will **automatically install** `lm-eval[api]` if it's not found. This allows evaluation to work with any Docker image without rebuilding containers.
+
+When you run evaluation:
+- If `lm_eval` is not in PATH, it will be installed automatically
+- Installation takes ~1-2 minutes on first run
+- Subsequent runs use the installed package
+
+### Manual Installation (Optional)
+
+If you prefer to pre-install:
 
 ```bash
 # Option 1: Install from requirements file
 pip install -r requirements-evaluation.txt
 
 # Option 2: Install directly
-pip install lm-eval>=0.4.0
+pip install lm-eval[api]>=0.4.0
 
 # Verify installation
 lm_eval --help
@@ -18,10 +29,12 @@ which lm_eval
 
 ## Key Changes Applied
 
-### 1. **Installation Check** (`lm_eval.py`)
-- Added `_check_lm_eval_installed()` method
-- Raises `RuntimeError` with installation instructions if not found
-- Logs lm-eval path when found
+### 1. **Automatic Installation** (`lm_eval.py`)
+- Added `_check_lm_eval_installed()` method with auto-install capability
+- Automatically installs `lm-eval[api]>=0.4.0` if not found in PATH
+- 5-minute timeout for installation process
+- Works with any Docker image without rebuilding containers
+- Logs installation progress and verifies successful installation
 
 ### 2. **Improved Error Handling** (`lm_eval.py`)
 - Enhanced `_classify_error()` for better error categorization
@@ -71,15 +84,27 @@ python main.py \
   --evaluation-cache-dir /data/hf_cache
 ```
 
-## Error Handling
+## Behavior
 
-If lm-eval is not installed, you'll see:
+### First Run
+On first evaluation run, you'll see:
 ```
-ERROR: lm-eval-harness is not installed or not in PATH.
-Please install it with:
-  pip install lm-eval>=0.4.0
-Or add it to requirements.txt and run:
-  pip install -r requirements.txt
+WARNING: lm-eval-harness not found in PATH, installing...
+INFO: lm-eval-harness installed successfully
+INFO: lm-eval-harness found: /usr/local/bin/lm_eval
+```
+
+### Subsequent Runs
+```
+INFO: lm-eval-harness found: /usr/local/bin/lm_eval
+```
+
+### Installation Failure
+If automatic installation fails:
+```
+ERROR: Failed to install lm-eval-harness:
+stdout: ...
+stderr: ...
 ```
 
 ## Files Modified

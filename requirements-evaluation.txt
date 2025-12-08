@@ -2,7 +2,7 @@
 # Install with: pip install -r requirements-evaluation.txt
 
 # LM Evaluation Harness - for running evaluation tasks
-lm-eval>=0.4.0
+lm-eval[api]>=0.4.0
 
 # Optional: Additional evaluation frameworks (uncomment if needed)
 # opencompass>=0.2.0

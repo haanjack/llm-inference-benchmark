@@ -55,21 +55,48 @@ class LMEvalEvaluator(BaseEvaluator):
         self._check_lm_eval_installed()
 
     def _check_lm_eval_installed(self):
-        """Check if lm-eval-harness is installed.
+        """Check if lm-eval-harness is installed, install if missing.
+
+        Automatically installs lm-eval[api] if not found in PATH.
+        This allows evaluation to work with any Docker image without rebuilding.
 
         Raises:
-            RuntimeError: If lm_eval command is not found
+            RuntimeError: If installation fails
         """
         if not shutil.which("lm_eval"):
-            error_msg = (
-                "lm-eval-harness is not installed or not in PATH.\n"
-                "Please install it with:\n"
-                "  pip install lm-eval>=0.4.0\n"
-                "Or add it to requirements.txt and run:\n"
-                "  pip install -r requirements.txt"
-            )
-            logger.error(error_msg)
-            raise RuntimeError(error_msg)
+            logger.warning("lm-eval-harness not found in PATH, installing...")
+            try:
+                install_cmd = [
+                    "pip", "install", "--quiet", "lm-eval[api]>=0.4.0"
+                ]
+                result = subprocess.run(
+                    install_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,  # 5 minutes timeout for installation
+                )
+
+                if result.returncode != 0:
+                    error_msg = (
+                        f"Failed to install lm-eval-harness:\n"
+                        f"stdout: {result.stdout}\n"
+                        f"stderr: {result.stderr}"
+                    )
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+
+                logger.info("lm-eval-harness installed successfully")
+
+                # Verify installation
+                if not shutil.which("lm_eval"):
+                    raise RuntimeError(
+                        "lm-eval installed but not found in PATH. "
+                        "Try restarting the Python process."
+                    )
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("lm-eval installation timed out after 5 minutes")
+            except Exception as e:
+                raise RuntimeError(f"Failed to install lm-eval: {str(e)}")
 
         logger.info("lm-eval-harness found: %s", shutil.which("lm_eval"))
 

@@ -91,7 +91,7 @@ class EvaluationClient(BenchmarkClientBase):
             }
 
         try:
-            endpoint = self.server.get_endpoint()
+            endpoint = self.server.endpoint
             model_name = self.server.model_name
 
             logger.info("Evaluation Endpoint: %s", endpoint)
