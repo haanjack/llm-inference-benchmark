@@ -298,7 +298,7 @@ class BenchmarkBase:
             except (subprocess.SubprocessError, FileNotFoundError):
                 return False
 
-    def _wait_for_server(self, timeout: int = 2 * 60 * 60) -> bool:
+    def _wait_for_server(self, timeout: int = 4 * 60 * 60) -> bool:
         start_time = time.time()
         last_log_time = start_time
         while True:
