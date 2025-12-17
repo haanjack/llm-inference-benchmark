@@ -10,8 +10,8 @@ test_plan_override=${3:-""} # optional test plan to override run_list test_plan
 host_list=()
 
 # docker images for different backends
-image_vllm="docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.2_20251210"
-image_sgl="docker.io/rocm/sgl-dev:v0.5.6.post1-rocm700-mi35x-20251211"
+# image_vllm="docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.2_20251210"
+# image_sgl="docker.io/rocm/sgl-dev:v0.5.6.post1-rocm700-mi35x-20251211"
 
 # set to true to remove model checkpoints after use
 remove_checkpoint=false
@@ -50,7 +50,7 @@ if [ "$run_mode" == "benchmark" ]; then
     model_key_list=()
     for entry in "${run_list[@]}"; do
         IFS=' ' read -r -a values <<< "$entry"
-        model_path_or_id="${values[1]}"
+        model_path_or_id="${values[2]}"
         benchmark_map["$model_path_or_id"]+="$entry |"
     done
     for key in "${!benchmark_map[@]}"; do
@@ -77,12 +77,17 @@ if [ "$run_mode" == "benchmark" ]; then
         entries_string="${benchmark_map[$key]}"
         # Remove trailing pipe
         entries_string="${entries_string%|}"
-        # Split by pipe - properly quoted
-        while IFS='|' read -r entry; do
+
+        # Split by pipe into an array and trim whitespace
+        IFS='|' read -r -a entries <<< "$entries_string"
+        for entry in "${entries[@]}"; do
+            # trim leading/trailing spaces
+            entry="${entry#"${entry%%[![:space:]]*}"}"
+            entry="${entry%"${entry##*[![:space:]]}"}"
             if [ -n "$entry" ]; then
                 run_list+=("$entry")
             fi
-        done <<< "$entries_string"
+        done
     done
 fi
 
@@ -90,25 +95,20 @@ fi
 declare -A model_usage_count
 for entry in "${run_list[@]}"; do
     IFS=' ' read -r -a values <<< "$entry"
-    model_path_or_id="${values[1]}"
+    model_path_or_id="${values[2]}"
     ((model_usage_count["$model_path_or_id"]++))
 done
 
 for entry in "${run_list[@]}"; do
     IFS=' ' read -r -a values <<< "$entry"
     server_backend="${values[0]}"
-    model_path_or_id="${values[1]}"
-    model_config="${values[2]}"
-    test_plan="${values[3]}"
-    benchmark_client="${values[4]}"
-    gpu_devices="${values[5]}"
-    sub_task="${values[6]:-""}"
-
-    if [[ "$server_backend" == "vllm" ]]; then
-        image=${image_vllm}
-    else
-        image=${image_sgl}
-    fi
+    docker_image="${values[1]}"
+    model_path_or_id="${values[2]}"
+    model_config="${values[3]}"
+    test_plan="${values[4]}"
+    benchmark_client="${values[5]}"
+    gpu_devices="${values[6]}"
+    sub_task="${values[7]:-""}"
 
     if [ ! -f "$model_config" ]; then
         echo "Model config file not found: '${model_config}', skipping..."
@@ -119,7 +119,8 @@ for entry in "${run_list[@]}"; do
         test_plan="$test_plan_override"
     fi
 
-    bash scripts/run_test.sh ${run_mode} ${model_config} ${model_path_or_id} ${server_backend} ${image} ${benchmark_client} ${gpu_devices} ${test_plan} ${sub_task}
+    # echo "Running benchmark for model: '${model_path_or_id}' with config: '${model_config}' on backend: '${server_backend}' using docker image: '${docker_image}'"
+    bash scripts/run_test.sh ${run_mode} ${model_config} ${model_path_or_id} ${server_backend} ${docker_image} ${benchmark_client} ${gpu_devices} ${test_plan} ${sub_task}
     test_status=$?
 
     # Remove checkpoint to save space
@@ -132,7 +133,7 @@ for entry in "${run_list[@]}"; do
         current_index=$((BASH_LINENO[0]))
         for remaining_entry in "${run_list[@]}"; do
             IFS=' ' read -r -a remaining_values <<< "$remaining_entry"
-            remaining_model="${remaining_values[1]}"
+            remaining_model="${remaining_values[2]}"
 
             # Skip if we haven't processed this entry yet
             if [ "$remaining_entry" == "$entry" ]; then
