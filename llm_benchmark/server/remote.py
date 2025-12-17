@@ -17,7 +17,7 @@ class RemoteServer(BenchmarkBase):
 
     def start(self):
         """Does nothing, as the server is already running remotely."""
-        logger.info("Connecting to remote server at %s", self._endpoint)
+        logger.info("Connecting to remote server at %s", super().endpoint)
 
     def stop(self):
         """Does nothing, as we don't manage the remote server's lifecycle."""
@@ -26,8 +26,3 @@ class RemoteServer(BenchmarkBase):
     def cleanup(self):
         """Does nothing, as there are no local resources to clean up."""
         pass
-
-    @property
-    def endpoint(self) -> str:
-        """Returns the endpoint."""
-        return self._endpoint

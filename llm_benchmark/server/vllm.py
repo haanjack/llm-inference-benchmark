@@ -212,6 +212,16 @@ class VLLMServer(BenchmarkBase):
                 cmd, stdout=f, stderr=subprocess.STDOUT, env=server_env
             )
 
+    def _wait_for_server(self, timeout: int = 2 * 60 * 60) -> bool:
+        if super()._wait_for_server(timeout):
+            # vLLM can return 200 with an empty list before it's truly ready
+            response = requests.get(
+                f"http://localhost:{self._port}/v1/models", timeout=10
+            )
+            if response.json():
+                return True
+        return False
+
     def cleanup(self):
         """Cleanup resources."""
         if self._in_container:

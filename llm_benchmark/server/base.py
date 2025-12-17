@@ -448,7 +448,11 @@ class BenchmarkBase:
     @property
     def endpoint(self) -> str:
         """returns server endpoint"""
-        return f"{self.addr}:{self.port}"
+        scheme = "http"
+        if self._remote_server_endpoint:
+            parsed_url = urlparse(self._remote_server_endpoint)
+            scheme = parsed_url.scheme
+        return f"{scheme}://{self.addr}:{self.port}"
 
     def generate_script(self, generator: ScriptGenerator):
         """Generates the server-side portion of the benchmark script."""

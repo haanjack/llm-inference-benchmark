@@ -98,6 +98,9 @@ def get_args():
 
     args = parser.parse_args()
 
+    if args.backend == "remote" and not args.endpoint:
+        raise ValueError("--endpoint is required when using --backend 'remote'")
+
     return args
 
 
@@ -153,17 +156,15 @@ def main():
         logger.info("Image: %s", args.image)
         logger.info("Benchmark Client: %s", args.benchmark_client)
 
-        if args.endpoint:
+
+        if args.backend == "vllm":
+            server = VLLMServer(**server_kwargs)
+        elif args.backend == "sglang":
+            server = SGLangServer(**server_kwargs)
+        elif args.backend == "remote":
             server = RemoteServer(**server_kwargs)
         else:
-            if args.backend == "vllm":
-                server = VLLMServer(**server_kwargs)
-            elif args.backend == "sglang":
-                server = SGLangServer(**server_kwargs)
-            elif args.backend == "remote":
-                server = RemoteServer(**server_kwargs)
-            else:
-                raise ValueError(f"Unknown backend: {args.backend}")
+            raise ValueError(f"Unknown backend: {args.backend}")
 
             server.start()
 
