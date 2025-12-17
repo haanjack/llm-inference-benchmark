@@ -36,7 +36,6 @@ class BenchmarkBase:
                  model_config: str = None,
                  gpu_devices: str = None,
                  num_gpus: int = None,
-                 arch: str = None,
                  dry_run: bool = False,
                  in_container: bool = False,
                  endpoint: str = None,
@@ -49,7 +48,6 @@ class BenchmarkBase:
         self._env_vars = {}
         self._server_args = {}
         self._compilation_config = {}
-        self._arch = arch
         self._model_config = model_config
         self._is_dry_run = dry_run
         self._in_container = in_container
@@ -79,6 +77,19 @@ class BenchmarkBase:
             self._container_runtime = "docker" if self._is_docker_available() else "podman"
             self._container_name = self._setup_container_name()
         self._setup_logging_dirs()
+
+        # GPU architecture
+        self._arch = None
+        subprocess_run = subprocess.run(["amd-smi", "static", "-g", "0", "--json"], capture_output=True, text=True)
+        if subprocess_run.returncode == 0:
+            try:
+                gpu_info = yaml.safe_load(subprocess_run.stdout)
+                self._arch = gpu_info['gpu_data'][0]['vbios']['name'].split(' ')[-1].lower()
+                logger.info("Detected GPU architecture: %s", self._arch.upper())
+            except Exception as e:
+                logger.warning("Failed to parse GPU architecture: %s", e)
+        else:
+            logger.warning("amd-smi command failed, cannot detect GPU architecture.")
 
         if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model at {self._model_name} in {self.get_model_path()}.")

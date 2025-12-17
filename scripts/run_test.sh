@@ -65,6 +65,5 @@ python3 main.py \
     --benchmark-client $benchmark_client \
     --test-plan ${test_plan} \
     --gpu-devices ${gpu_devices} \
-    --arch mi355x \
     ${extra_opt}
 set +x

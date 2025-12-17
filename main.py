@@ -67,9 +67,6 @@ def get_args():
     )
     parser.add_argument("--num-gpus", default=None, help="Number of GPUs")
     parser.add_argument(
-        "--arch", default=None, help="Target GPU architecture for model config"
-    )
-    parser.add_argument(
         "--benchmark-client",
         default="vllm",
         choices=["vllm", "genai-perf", "sglang"],
@@ -130,7 +127,6 @@ def main():
                 "model_root_dir": args.model_root_dir,
                 "gpu_devices": args.gpu_devices,
                 "num_gpus": args.num_gpus,
-                "arch": args.arch,
                 "dry_run": args.dry_run,
                 "no_warmup": args.no_warmup,
                 "in_container": args.in_container,
