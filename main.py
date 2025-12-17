@@ -35,7 +35,7 @@ def get_args():
     parser.add_argument(
         "--backend",
         default="vllm",
-        choices=["vllm", "sglang"],
+        choices=["vllm", "sglang", "remote"],
         help="LLM serving backend to use",
     )
     parser.add_argument(
@@ -98,12 +98,6 @@ def get_args():
 
     args = parser.parse_args()
 
-    if args.endpoint:
-        # When using an endpoint, some arguments related to server startup are not needed
-        # but we still need model and image for logging.
-        # Let's make them optional if endpoint is provided.
-        # We can achieve this by relaxing the 'required' constraint post-parsing.
-        pass
     return args
 
 
@@ -166,6 +160,8 @@ def main():
                 server = VLLMServer(**server_kwargs)
             elif args.backend == "sglang":
                 server = SGLangServer(**server_kwargs)
+            elif args.backend == "remote":
+                server = RemoteServer(**server_kwargs)
             else:
                 raise ValueError(f"Unknown backend: {args.backend}")
 

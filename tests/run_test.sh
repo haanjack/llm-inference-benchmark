@@ -12,7 +12,7 @@ test_plan=${8:-"test"}
 sub_task=${9:-""}
 
 # check inputs are available options
-run_modes=("" "profile" "dry_run" "generate_script")
+run_modes=("" "benchmark" "dry_run" "generate_script")
 server_backends=("sglang" "vllm")
 benchmark_clients=("vllm" "sglang" "genai-perf")
 
@@ -44,7 +44,7 @@ if [ ! -f "$model_config" ]; then
 fi
 
 extra_opt=""
-if [ "${run_mode}" == "profile" ]; then
+if [ "${run_mode}" == "benchmark" ]; then
     extra_opt=""
 elif [ "${run_mode}" == "dry_run" ]; then
     extra_opt="--dry-run"
@@ -65,5 +65,6 @@ python3 main.py \
     --benchmark-client $benchmark_client \
     --test-plan ${test_plan} \
     --gpu-devices ${gpu_devices} \
+    --arch mi355x \
     ${extra_opt}
 set +x
