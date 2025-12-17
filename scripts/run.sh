@@ -148,8 +148,8 @@ for entry in "${run_list[@]}"; do
 
         # Only remove checkpoint if no more tests need this model
         if [ "$model_still_needed" == false ]; then
-            echo "No more tests need model '${model_path_or_id}', removing checkpoint..."
             if [ "$remove_checkpoint" = true ]; then
+                echo "No more tests need model '${model_path_or_id}', removing checkpoint..."
                 rm -rf ~/models/$model_path_or_id
             fi
         else

@@ -64,6 +64,19 @@ class BenchmarkBase:
         self._model_name = f"{self._model_path.parent.name}/{self._model_path.name}"
         self._container_model_path = Path(f"/models/{self._model_name}")
 
+        # GPU architecture
+        self._arch = None
+        subprocess_run = subprocess.run(["amd-smi", "static", "-g", "0", "--json"], capture_output=True, text=True)
+        if subprocess_run.returncode == 0:
+            try:
+                gpu_info = yaml.safe_load(subprocess_run.stdout)
+                self._arch = gpu_info['gpu_data'][0]['vbios']['name'].split(' ')[-1].lower()
+                logger.info("Detected GPU architecture: %s", self._arch.upper())
+            except Exception as e:
+                logger.warning("Failed to parse GPU architecture: %s", e)
+        else:
+            logger.warning("amd-smi command failed, cannot detect GPU architecture.")
+
         # Initialize container runtime
         if endpoint is None:
             self._gpu_devices, self._num_gpus, self._port = self._get_system_config(gpu_devices, num_gpus)
@@ -77,19 +90,6 @@ class BenchmarkBase:
             self._container_runtime = "docker" if self._is_docker_available() else "podman"
             self._container_name = self._setup_container_name()
         self._setup_logging_dirs()
-
-        # GPU architecture
-        self._arch = None
-        subprocess_run = subprocess.run(["amd-smi", "static", "-g", "0", "--json"], capture_output=True, text=True)
-        if subprocess_run.returncode == 0:
-            try:
-                gpu_info = yaml.safe_load(subprocess_run.stdout)
-                self._arch = gpu_info['gpu_data'][0]['vbios']['name'].split(' ')[-1].lower()
-                logger.info("Detected GPU architecture: %s", self._arch.upper())
-            except Exception as e:
-                logger.warning("Failed to parse GPU architecture: %s", e)
-        else:
-            logger.warning("amd-smi command failed, cannot detect GPU architecture.")
 
         if not self._model_path.exists() and not self._is_dry_run:
             raise FileNotFoundError(f"Could not find model at {self._model_name} in {self.get_model_path()}.")
@@ -205,7 +205,7 @@ class BenchmarkBase:
             if self._arch in arch_params:
                 self._env_vars.update(arch_params.get(self._arch, {}))
             else:
-                logger.warning("Architecture '%s' not found in model config arch_specific_params.", self._arch)
+                logger.info("Architecture '%s' not found in model config arch_specific_params.", self._arch)
         else:
             logger.info("No architecture specified. Skipping architecture-specific environment variables.")
 

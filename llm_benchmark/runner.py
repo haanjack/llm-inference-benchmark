@@ -279,8 +279,11 @@ class BenchmarkRunner:
             except subprocess.CalledProcessError as e:
                 if not self._is_dry_run:
                     logger.error("Benchmark failed for plan: %s", test_plan)
-                    logger.error("%s", str(e).rsplit('\n', maxsplit=1)[-1])
+                    # Format command as a simple string if available
+                    cmd_str = ' '.join(e.cmd) if isinstance(e.cmd, list) else str(e.cmd)
+                    logger.error("Command: %s", cmd_str)
                     return
+
 
     def _format_result_for_console(self, values: List[str]) -> str:
         if len(values) != len(self._columns): # pyright: ignore
