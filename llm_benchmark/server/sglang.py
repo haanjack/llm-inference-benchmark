@@ -122,10 +122,7 @@ class SGLangServer(BenchmarkBase):
         """Start SGLang server container"""
         self.cleanup_container()
         cmd = self.get_server_run_cmd()
-        if self._is_dry_run:
-            logger.info("Dry run - Docker server command:")
-            logger.info(" ".join(cmd))
-            return
+        logger.info("SGLang server command: %s", " ".join(cmd))
 
         logger.info("Started to initialize sglang server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)

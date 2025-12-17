@@ -162,7 +162,7 @@ def main():
         else:
             raise ValueError(f"Unknown backend: {args.backend}")
 
-            server.start()
+        server.start()
 
         if args.benchmark_client == "vllm":
             client = VLLMClient(

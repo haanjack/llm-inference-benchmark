@@ -165,15 +165,12 @@ class VLLMServer(BenchmarkBase):
         """Start vLLM server container"""
         self.cleanup_container()
         cmd = self.get_server_run_cmd(no_enable_prefix_caching)
-        if self._is_dry_run:
-            logger.info("Dry run - Docker server command:")
-            logger.info(" ".join(cmd))
-            logger.info("config file content:")
-            dict_config_str = json.dumps(
-                self._compilation_config, separators=(",", ":")
-            )
-            logger.info("compilation_config: %s", dict_config_str)
-            return
+
+        logger.info("vLLM server command: %s", " ".join(cmd))
+        dict_config_str = json.dumps(
+            self._compilation_config, separators=(",", ":")
+        )
+        logger.info("compilation_config: %s", dict_config_str)
 
         logger.info("Started to initialize vllm server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
