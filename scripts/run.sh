@@ -99,6 +99,10 @@ for entry in "${run_list[@]}"; do
     ((model_usage_count["$model_path_or_id"]++))
 done
 
+# track async runs
+declare -a bg_pids bg_models bg_entries
+
+# run benchmarks
 for entry in "${run_list[@]}"; do
     IFS=' ' read -r -a values <<< "$entry"
     server_backend="${values[0]}"
@@ -108,7 +112,8 @@ for entry in "${run_list[@]}"; do
     test_plan="${values[4]}"
     benchmark_client="${values[5]}"
     gpu_devices="${values[6]}"
-    sub_task="${values[7]:-""}"
+    sub_task="${values[7]:-"all"}"
+    run_async="${values[8]:-""}"
 
     if [ ! -f "$model_config" ]; then
         echo "Model config file not found: '${model_config}', skipping..."
@@ -117,6 +122,28 @@ for entry in "${run_list[@]}"; do
 
     if [ -n "$test_plan_override" ]; then
         test_plan="$test_plan_override"
+    fi
+
+    # Async mode: launch and move on
+    if [[ "$run_async" == "async" ]]; then
+        bash scripts/run_test.sh ${run_mode} ${model_config} ${model_path_or_id} ${server_backend} ${docker_image} ${benchmark_client} ${gpu_devices} ${test_plan} ${sub_task} &
+        pid=$!
+        echo "Launched async PID ${pid} for model '${model_path_or_id}' on GPUs '${gpu_devices}'"
+        bg_pids+=("$pid")
+        bg_models+=("$model_path_or_id")
+        bg_entries+=("$entry")
+        continue
+    fi
+
+    # Wait for pending async jobs before running sync job
+    if [ ${#bg_pids[@]} -gt 0 ]; then
+        echo "Waiting for ${#bg_pids[@]} async jobs before running sync job..."
+        for i in "${!bg_pids[@]}"; do
+            wait "${bg_pids[$i]}"
+        done
+        bg_pids=()
+        bg_models=()
+        bg_entries=()
     fi
 
     # echo "Running benchmark for model: '${model_path_or_id}' with config: '${model_config}' on backend: '${server_backend}' using docker image: '${docker_image}'"
@@ -158,3 +185,17 @@ for entry in "${run_list[@]}"; do
         fi
     fi
 done
+
+# Wait for any remaining background jobs
+if [ ${#bg_pids[@]} -gt 0 ]; then
+    echo "Waiting for ${#bg_pids[@]} final async jobs..."
+    for i in "${!bg_pids[@]}"; do
+        pid="${bg_pids[$i]}"
+        model="${bg_models[$i]}"
+        if wait "$pid"; then
+            echo "Async job PID ${pid} for model '${model}' completed successfully."
+        else
+            echo "Async job PID ${pid} for model '${model}' failed."
+        fi
+    done
+fi

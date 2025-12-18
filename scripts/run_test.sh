@@ -52,7 +52,7 @@ elif [ "${run_mode}" == "generate_script" ]; then
     extra_opt="--generate-script"
 fi
 
-if [ -n "${sub_task}" ]; then
+if [ -n "${sub_task}" ] && [ "${sub_task}" != "all" ]; then
     extra_opt+=" --sub-task ${sub_task}"
 fi
 
