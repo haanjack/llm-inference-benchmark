@@ -198,14 +198,15 @@ class BenchmarkBase:
             config_content = f.read()
             model_config = yaml.safe_load(config_content)
 
-        env_vars = model_config.get('env_vars', {})
+        env_vars = model_config.get('envs', {})
         if env_vars:
             self._env_vars.update(env_vars)
 
         arch_params = model_config.get('arch_specific_params', {})
         if self._arch and arch_params:
             if self._arch in arch_params:
-                self._env_vars.update(arch_params.get(self._arch, {}))
+                arch_params_ = arch_params.get(self._arch, {})
+                self._env_vars.update(arch_params_)
             else:
                 logger.info("Architecture '%s' not found in model config arch_specific_params.", self._arch)
         else:
