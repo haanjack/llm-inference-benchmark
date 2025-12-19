@@ -198,10 +198,12 @@ class BenchmarkBase:
             config_content = f.read()
             model_config = yaml.safe_load(config_content)
 
-        self._env_vars.update(model_config.get('envs', {}))
+        env_vars = model_config.get('env_vars', {})
+        if env_vars:
+            self._env_vars.update(env_vars)
 
-        if self._arch:
-            arch_params = model_config.get('arch_specific_params', {})
+        arch_params = model_config.get('arch_specific_params', {})
+        if self._arch and arch_params:
             if self._arch in arch_params:
                 self._env_vars.update(arch_params.get(self._arch, {}))
             else:
@@ -210,12 +212,14 @@ class BenchmarkBase:
             logger.info("No architecture specified. Skipping architecture-specific environment variables.")
 
         parallel_dict = model_config.get('parallel', {})
-        if self._num_gpus in parallel_dict:
+        if parallel_dict is not None and self._num_gpus in parallel_dict:
             if parallel_dict[self._num_gpus]:
                 self._server_args.update(parallel_dict[self._num_gpus])
 
-        self._server_args.update(model_config.get('server_args', {}))
-        self._compilation_config = model_config.get('compilation_config', {})
+        server_args = model_config.get('server_args', {})
+        if server_args:
+            self._server_args.update(server_args)
+        self._compilation_config = model_config.get('compilation_config', {}) if model_config.get('compilation_config', {}) else {}
 
     def _load_model_from_path_or_hub(self, model_path_or_id: str,
                                      model_root_dir: Optional[Union[str, Path]] = None) -> Path:
