@@ -7,6 +7,7 @@ test_plan_override=${3:-""} # optional test plan to override run_list test_plan
 
 # list of hostnames to distribute benchmarks across
 # e.g. host_list=("host1" "host2" "host3")
+# host_list=(mi355-gpu-2 mi355-gpu-31)
 host_list=()
 
 # docker images for different backends
@@ -18,6 +19,12 @@ remove_checkpoint=false
 
 
 ###### don't modify below this line ######
+
+# check run_mode validity
+if [[ "$run_mode" != "" && "$run_mode" != "benchmark" && "$run_mode" != "dry_run" && "$run_mode" != "generate_script" ]]; then
+    echo "Invalid run_mode: '${run_mode}'. Valid options are: '' | 'benchmark' | 'dry_run' | 'generate_script'"
+    exit 1
+fi
 
 # load run_list from file
 run_list=()

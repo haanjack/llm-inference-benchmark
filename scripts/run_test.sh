@@ -56,6 +56,7 @@ if [ -n "${sub_task}" ] && [ "${sub_task}" != "all" ]; then
     extra_opt+=" --sub-task ${sub_task}"
 fi
 
+set -o pipefail
 set -x
 python3 main.py \
     --model-config $model_config \
@@ -65,5 +66,8 @@ python3 main.py \
     --benchmark-client $benchmark_client \
     --test-plan ${test_plan} \
     --gpu-devices ${gpu_devices} \
-    ${extra_opt}
+    ${extra_opt} \
+    | cat
 set +x
+main_status=${PIPESTATUS[0]}
+exit $main_status
