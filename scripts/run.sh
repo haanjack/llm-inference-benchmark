@@ -164,7 +164,6 @@ for entry in "${run_list[@]}"; do
     else
         # Check if this model is still needed for remaining tests
         model_still_needed=false
-        current_index=$((BASH_LINENO[0]))
         for remaining_entry in "${run_list[@]}"; do
             IFS=' ' read -r -a remaining_values <<< "$remaining_entry"
             remaining_model="${remaining_values[2]}"
