@@ -267,12 +267,12 @@ def prettify_script(input_path: Path, output_path: Path = None):
 
     # Add helpful header comment
     header_comment = f"""#!/bin/bash
-# Auto-generated benchmark script (prettified for sharing)
+# Benchmark script
 #
-# This script runs vLLM benchmarks with the specified configuration.
+# This script runs llm benchmarks with the specified configuration.
 # To customize, edit the variables below before running.
 #
-# Usage: ./run-llama-vllm-test.sh
+# Usage: ./{output_path.name}
 #
 
 """

@@ -36,10 +36,10 @@ class BenchmarkBase:
                  model_config: str = None,
                  gpu_devices: str = None,
                  num_gpus: int = None,
-                 arch: str = None,
                  dry_run: bool = False,
                  in_container: bool = False,
                  endpoint: str = None,
+                 log_dir: Path = None,
                  script_generator: ScriptGenerator = None):
 
         self.name = name
@@ -49,24 +49,46 @@ class BenchmarkBase:
         self._env_vars = {}
         self._server_args = {}
         self._compilation_config = {}
-        self._arch = arch
         self._model_config = model_config
         self._is_dry_run = dry_run
         self._in_container = in_container
         self._log_process: Optional[subprocess.Popen] = None
         self._model_path_or_id = model_path_or_id
-        self._remote_server_endpoint = endpoint if endpoint else None
         self.script_generator = script_generator
+        self._remote_server_endpoint = None
+        if endpoint:
+            if "://" not in endpoint:
+                endpoint = "http://" + endpoint
+            self._remote_server_endpoint = endpoint
 
         self._model_path = self._load_model_from_path_or_hub(model_path_or_id, model_root_dir)
         self._model_name = f"{self._model_path.parent.name}/{self._model_path.name}"
         self._container_model_path = Path(f"/models/{self._model_name}")
+
+        if log_dir is None:
+            raise ValueError("log_dir must be provided to BenchmarkBase")
+        self._log_dir = log_dir
+
+        # GPU architecture
+        self._arch = None
+        subprocess_run = subprocess.run(["amd-smi", "static", "-g", "0", "--json"], capture_output=True, text=True)
+        if subprocess_run.returncode == 0:
+            try:
+                gpu_info = yaml.safe_load(subprocess_run.stdout)
+                self._arch = gpu_info['gpu_data'][0]['vbios']['name'].split(' ')[-1].lower()
+                logger.info("Detected GPU architecture: %s", self._arch.upper())
+            except Exception as e:
+                logger.warning("Failed to parse GPU architecture: %s", e)
+        else:
+            logger.warning("amd-smi command failed, cannot detect GPU architecture.")
 
         # Initialize container runtime
         if endpoint is None:
             self._gpu_devices, self._num_gpus, self._port = self._get_system_config(gpu_devices, num_gpus)
             self._parallel_size = {'tp': str(self.num_gpus)}
             self._load_model_config()
+        else:
+            self._parallel_size = {'tp': '1'}
 
         self._container_runtime = None
         if not self.in_container:
@@ -90,13 +112,12 @@ class BenchmarkBase:
 
     def _setup_logging_dirs(self):
         current_time = time.strftime("%Y%m%d-%H%M%S")
-        self._log_dir = Path("logs") / self._model_name / self.image_tag
         self._exp_tag = f"{Path(self._model_config).stem}"
         if not self._remote_server_endpoint:
             self._exp_tag += f"-tp{self._parallel_size.get('tp', '1')}"
             self.server_log_path = self._log_dir / self._exp_tag / "server_logs" / f"{current_time}.txt"
-        if not self._is_dry_run:
-            self.server_log_path.parent.mkdir(parents=True, exist_ok=True)
+            if not self._is_dry_run:
+                self.server_log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _cache_dir(self, cache_name: str):
         self._host_cache_dir = Path.cwd() / cache_name / self._exp_tag
@@ -181,24 +202,29 @@ class BenchmarkBase:
             config_content = f.read()
             model_config = yaml.safe_load(config_content)
 
-        self._env_vars.update(model_config.get('envs', {}))
+        env_vars = model_config.get('envs', {})
+        if env_vars:
+            self._env_vars.update(env_vars)
 
-        if self._arch:
-            arch_params = model_config.get('arch_specific_params', {})
+        arch_params = model_config.get('arch_specific_params', {})
+        if self._arch and arch_params:
             if self._arch in arch_params:
-                self._env_vars.update(arch_params.get(self._arch, {}))
+                arch_params_ = arch_params.get(self._arch, {})
+                self._env_vars.update(arch_params_)
             else:
-                logger.warning("Architecture '%s' not found in model config arch_specific_params.", self._arch)
+                logger.info("Architecture '%s' not found in model config arch_specific_params.", self._arch)
         else:
             logger.info("No architecture specified. Skipping architecture-specific environment variables.")
 
         parallel_dict = model_config.get('parallel', {})
-        if self._num_gpus in parallel_dict:
+        if parallel_dict is not None and self._num_gpus in parallel_dict:
             if parallel_dict[self._num_gpus]:
                 self._server_args.update(parallel_dict[self._num_gpus])
 
-        self._server_args.update(model_config.get('server_args', {}))
-        self._compilation_config = model_config.get('compilation_config', {})
+        server_args = model_config.get('server_args', {})
+        if server_args:
+            self._server_args.update(server_args)
+        self._compilation_config = model_config.get('compilation_config', {}) if model_config.get('compilation_config', {}) else {}
 
     def _load_model_from_path_or_hub(self, model_path_or_id: str,
                                      model_root_dir: Optional[Union[str, Path]] = None) -> Path:
@@ -298,7 +324,7 @@ class BenchmarkBase:
             except (subprocess.SubprocessError, FileNotFoundError):
                 return False
 
-    def _wait_for_server(self, timeout: int = 2 * 60 * 60) -> bool:
+    def _wait_for_server(self, timeout: int = 4 * 60 * 60) -> bool:
         start_time = time.time()
         last_log_time = start_time
         while True:
@@ -442,7 +468,11 @@ class BenchmarkBase:
     @property
     def endpoint(self) -> str:
         """returns server endpoint"""
-        return f"{self.addr}:{self.port}"
+        scheme = "http"
+        if self._remote_server_endpoint:
+            parsed_url = urlparse(self._remote_server_endpoint)
+            scheme = parsed_url.scheme
+        return f"{scheme}://{self.addr}:{self.port}"
 
     def generate_script(self, generator: ScriptGenerator):
         """Generates the server-side portion of the benchmark script."""

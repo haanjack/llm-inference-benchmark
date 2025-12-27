@@ -26,7 +26,9 @@ def get_args():
     parser = argparse.ArgumentParser(description="Run LLM benchmarks")
 
     # benchmark configuration
-    parser.add_argument("--model-config", required=True, help="Model config file name")
+    parser.add_argument(
+        "--model-config", required=True, help="Model config file name"
+    )
     parser.add_argument(
         "--model-path-or-id",
         required=True,
@@ -35,7 +37,7 @@ def get_args():
     parser.add_argument(
         "--backend",
         default="vllm",
-        choices=["vllm", "sglang"],
+        choices=["vllm", "sglang", "remote"],
         help="LLM serving backend to use",
     )
     parser.add_argument(
@@ -65,9 +67,8 @@ def get_args():
     parser.add_argument(
         "--gpu-devices", default=None, help="Comma-separated GPU device IDs"
     )
-    parser.add_argument("--num-gpus", default=None, help="Number of GPUs")
     parser.add_argument(
-        "--arch", default=None, help="Target GPU architecture for model config"
+        "--num-gpus", default=None, help="Number of GPUs"
     )
     parser.add_argument(
         "--benchmark-client",
@@ -80,6 +81,11 @@ def get_args():
         default=None,
         help="Specify a remote endpoint URL to benchmark against. "
         "If provided, the script will not start a local server.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="logs",
+        help="Directory to save benchmark logs (default: logs)"
     )
 
     # test control
@@ -98,12 +104,9 @@ def get_args():
 
     args = parser.parse_args()
 
-    if args.endpoint:
-        # When using an endpoint, some arguments related to server startup are not needed
-        # but we still need model and image for logging.
-        # Let's make them optional if endpoint is provided.
-        # We can achieve this by relaxing the 'required' constraint post-parsing.
-        pass
+    if args.backend == "remote" and not args.endpoint:
+        raise ValueError("--endpoint is required when using --backend 'remote'")
+
     return args
 
 
@@ -133,7 +136,6 @@ def main():
                 "model_root_dir": args.model_root_dir,
                 "gpu_devices": args.gpu_devices,
                 "num_gpus": args.num_gpus,
-                "arch": args.arch,
                 "dry_run": args.dry_run,
                 "no_warmup": args.no_warmup,
                 "in_container": args.in_container,
@@ -159,17 +161,17 @@ def main():
         logger.info("Image: %s", args.image)
         logger.info("Benchmark Client: %s", args.benchmark_client)
 
-        if args.endpoint:
+
+        if args.backend == "vllm":
+            server = VLLMServer(**server_kwargs)
+        elif args.backend == "sglang":
+            server = SGLangServer(**server_kwargs)
+        elif args.backend == "remote":
             server = RemoteServer(**server_kwargs)
         else:
-            if args.backend == "vllm":
-                server = VLLMServer(**server_kwargs)
-            elif args.backend == "sglang":
-                server = SGLangServer(**server_kwargs)
-            else:
-                raise ValueError(f"Unknown backend: {args.backend}")
+            raise ValueError(f"Unknown backend: {args.backend}")
 
-            server.start()
+        server.start()
 
         if args.benchmark_client == "vllm":
             client = VLLMClient(

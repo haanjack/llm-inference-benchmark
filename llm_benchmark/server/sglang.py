@@ -37,7 +37,7 @@ class SGLangServer(BenchmarkBase):
                 args.extend([f"--{key.replace('_', '-')}", str(value)])
         return args
 
-    def get_server_run_cmd(self, disable_radix_cache: bool) -> List[str]:
+    def get_server_run_cmd(self) -> List[str]:
         """Build server run command with container execution"""
         cmd = self._get_docker_run_common_command()
 
@@ -67,12 +67,10 @@ class SGLangServer(BenchmarkBase):
                 tp_size_val,
             ]
         )
-        if disable_radix_cache:
-            cmd.append("--disable-radix-cache")
         cmd.extend(self._build_sglang_args())
         return cmd
 
-    def get_server_run_cmd_direct(self, disable_radix_cache: bool) -> List[str]:
+    def get_server_run_cmd_direct(self) -> List[str]:
         """Build server run command"""
 
         use_script_vars = self.script_generator is not None
@@ -95,8 +93,6 @@ class SGLangServer(BenchmarkBase):
             "--port",
             port_val,
         ]
-        if disable_radix_cache:
-            cmd.append("--disable-radix-cache")
         cmd.extend(self._build_sglang_args())
         return cmd
 
@@ -106,18 +102,15 @@ class SGLangServer(BenchmarkBase):
 
         # vllm server prefix caching ops determined which dataset to test
         dataset_name = config.get("dataset_name", "random")
-        disable_radix_cache = dataset_name == "random"
-
-        return disable_radix_cache
 
     def start(self):
         """Start SGLang server."""
-        disable_radix_cache = self._load_test_plan()
+        self._load_test_plan()
 
         if self._in_container:
-            self._start_server_direct(disable_radix_cache)
+            self._start_server_direct()
         else:
-            self._start_server_container(disable_radix_cache)
+            self._start_server_container()
 
         if not self._is_dry_run:
             if not self._wait_for_server():
@@ -125,14 +118,11 @@ class SGLangServer(BenchmarkBase):
             logger.info("Server is up and running")
             self._warmup_server()
 
-    def _start_server_container(self, disable_radix_cache: bool):
+    def _start_server_container(self):
         """Start SGLang server container"""
         self.cleanup_container()
-        cmd = self.get_server_run_cmd(disable_radix_cache)
-        if self._is_dry_run:
-            logger.info("Dry run - Docker server command:")
-            logger.info(" ".join(cmd))
-            return
+        cmd = self.get_server_run_cmd()
+        logger.info("SGLang server command: %s", " ".join(cmd))
 
         logger.info("Started to initialize sglang server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
@@ -146,8 +136,8 @@ class SGLangServer(BenchmarkBase):
                 stderr=f,
             )
 
-    def _start_server_direct(self, disable_radix_cache: bool):
-        cmd = self.get_server_run_cmd_direct(disable_radix_cache)
+    def _start_server_direct(self):
+        cmd = self.get_server_run_cmd_direct()
         if self._is_dry_run:
             cmd_str = " ".join(cmd)
             cmd_str = cmd_str.replace("$MODEL_PATH", str(self._model_path))
@@ -217,7 +207,7 @@ class SGLangServer(BenchmarkBase):
     def generate_script(self, generator: ScriptGenerator):
         """Generates the SGLang server start command for the script."""
         super().generate_script(generator)
-        disable_radix_cache = self._load_test_plan()
-        server_cmd = self.get_server_run_cmd(disable_radix_cache)
+        self._load_test_plan()
+        server_cmd = self.get_server_run_cmd()
         generator.set_server_command(server_cmd)
         generator.set_wait_command(self.port)
