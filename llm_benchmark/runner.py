@@ -21,12 +21,14 @@ class BenchmarkRunner:
                 test_plan: str,
                 sub_tasks: List[str] = None,
                 is_dry_run: bool = False,
+                output_dir: str = "logs",
                 script_generator: ScriptGenerator = None):
         self.server = server
         self.client = client
         self._test_plan = test_plan
         self._sub_tasks = sub_tasks
         self._is_dry_run = server.is_dry_run or is_dry_run
+        self._output_dir = output_dir
         self.script_generator = script_generator
         self._test_plan_path = Path(f"configs/benchmark_plans/{test_plan}.yaml")
         self._columns = [
@@ -53,7 +55,7 @@ class BenchmarkRunner:
 
     def _setup_logging_dirs(self):
         """Setup benchmark result logging directories."""
-        self._log_dir = Path("logs") / self.server.model_name / self.server.image_tag
+        self._log_dir = Path(self._output_dir) / self.server.model_name / self.server.image_tag
 
         if self._is_dry_run:
             return
@@ -68,7 +70,7 @@ class BenchmarkRunner:
                 f.write('model_config,' + ','.join(self._csv_headers) + '\n')
 
         # Global "test set" dashboard (one row per BenchmarkRunner execution)
-        self._global_dashboard_file = Path("logs") / "test_results.tsv"
+        self._global_dashboard_file = Path(self._output_dir) / "test_results.tsv"
         self._global_dashboard_file.parent.mkdir(parents=True, exist_ok=True)
         if not self._global_dashboard_file.exists():
             with open(self._global_dashboard_file, "w", encoding="utf-8") as f:

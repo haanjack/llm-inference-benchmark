@@ -26,7 +26,9 @@ def get_args():
     parser = argparse.ArgumentParser(description="Run LLM benchmarks")
 
     # benchmark configuration
-    parser.add_argument("--model-config", required=True, help="Model config file name")
+    parser.add_argument(
+        "--model-config", required=True, help="Model config file name"
+    )
     parser.add_argument(
         "--model-path-or-id",
         required=True,
@@ -65,7 +67,9 @@ def get_args():
     parser.add_argument(
         "--gpu-devices", default=None, help="Comma-separated GPU device IDs"
     )
-    parser.add_argument("--num-gpus", default=None, help="Number of GPUs")
+    parser.add_argument(
+        "--num-gpus", default=None, help="Number of GPUs"
+    )
     parser.add_argument(
         "--benchmark-client",
         default="vllm",
@@ -77,6 +81,11 @@ def get_args():
         default=None,
         help="Specify a remote endpoint URL to benchmark against. "
         "If provided, the script will not start a local server.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="logs",
+        help="Directory to save benchmark logs (default: logs)"
     )
 
     # test control

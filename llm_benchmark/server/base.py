@@ -39,6 +39,7 @@ class BenchmarkBase:
                  dry_run: bool = False,
                  in_container: bool = False,
                  endpoint: str = None,
+                 log_dir: Path = None,
                  script_generator: ScriptGenerator = None):
 
         self.name = name
@@ -63,6 +64,10 @@ class BenchmarkBase:
         self._model_path = self._load_model_from_path_or_hub(model_path_or_id, model_root_dir)
         self._model_name = f"{self._model_path.parent.name}/{self._model_path.name}"
         self._container_model_path = Path(f"/models/{self._model_name}")
+
+        if log_dir is None:
+            raise ValueError("log_dir must be provided to BenchmarkBase")
+        self._log_dir = log_dir
 
         # GPU architecture
         self._arch = None
@@ -107,7 +112,6 @@ class BenchmarkBase:
 
     def _setup_logging_dirs(self):
         current_time = time.strftime("%Y%m%d-%H%M%S")
-        self._log_dir = Path("logs") / self._model_name / self.image_tag
         self._exp_tag = f"{Path(self._model_config).stem}"
         if not self._remote_server_endpoint:
             self._exp_tag += f"-tp{self._parallel_size.get('tp', '1')}"
