@@ -79,9 +79,11 @@ class BenchmarkRunner:
                     "model",
                     "image_tag",
                     "model_config",
+                    "tp_size",
                     "test_plan",
                     "sub_task",     # joined if multiple; empty if none
-                    "result"        # total_results CSV path if success; otherwise "failure"
+                    "result",       # "success" or "failure"
+                    "log_path"      # path to total_results CSV if success; otherwise "N/A"
                 ]) + "\n")
 
     def _print_benchmark_info(self):
@@ -347,13 +349,15 @@ class BenchmarkRunner:
         sub_task_str = ""
         if self._sub_tasks:
             sub_task_str = "+".join(self._sub_tasks)
-            test_plan += f"+{sub_task_str}"
         with open(self._global_dashboard_file, "a", encoding="utf-8") as f:
             f.write("\t".join([
                 datetime.now().isoformat(timespec="seconds"),
                 str(model),
                 str(image_tag),
                 str(model_config),
+                str(self.server.parallel_size['tp']),
                 test_plan,
-                str(result_path) if success and result_path else "failure"
+                sub_task_str,
+                "success" if success else "failure",
+                str(result_path) if result_path else "N/A"
             ]) + "\n")

@@ -16,8 +16,12 @@ VLLM_IMAGE = "docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"
 class VLLMClient(BenchmarkClientBase):
     """vLLM benchmark client."""
 
-    def __init__(self, server: BenchmarkBase, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
-        super().__init__("vllm", server, is_dry_run, script_generator)
+    def __init__(self,
+            server: BenchmarkBase,
+            is_dry_run: bool = False,
+            log_dir: Path = None,
+            script_generator: ScriptGenerator = None):
+        super().__init__("vllm", server, is_dry_run, log_dir, script_generator)
 
     def run_single_benchmark(self,
                              test_args: Dict[str, Any],

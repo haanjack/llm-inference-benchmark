@@ -25,7 +25,7 @@ class BenchmarkClientBase(ABC):
 
         if log_dir is None:
             raise ValueError("log_dir must be provided to BenchmarkClientBase")
-        self._log_dir = log_dir
+        self._log_dir = Path(log_dir) / self.server.model_name / self.server.image_tag
         self._results_file = self._log_dir / self.server.exp_tag / \
             f"result_{Path(self.server.model_config).stem}_{self.server.name}_{self.name}.csv"
         self._total_results_file = self._log_dir / f"total_results_{self.server.name}_{self.name}.csv"

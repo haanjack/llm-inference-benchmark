@@ -16,8 +16,12 @@ SGLANG_IMAGE = "docker.io/lmsysorg/sglang:v0.5.5.post3-rocm700-mi35x"
 class SGLangClient(BenchmarkClientBase):
     """Client for SGLang benchmarking."""
 
-    def __init__(self, server: BenchmarkBase, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
-        super().__init__("sglang", server, is_dry_run, script_generator)
+    def __init__(self,
+                server: BenchmarkBase,
+                is_dry_run: bool = False,
+                log_dir: Path = None,
+                script_generator: ScriptGenerator = None):
+        super().__init__("sglang", server, is_dry_run, log_dir, script_generator)
 
     def run_single_benchmark(self,
                              test_args: Dict[str, Any],

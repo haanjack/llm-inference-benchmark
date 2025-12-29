@@ -151,6 +151,7 @@ def main():
                 "model_path_or_id": args.model_path_or_id,
                 "num_gpus": args.num_gpus,
                 "dry_run": args.dry_run,
+                "log_dir": args.output_dir,
                 "script_generator": script_generator,
             }
         )
@@ -177,18 +178,21 @@ def main():
             client = VLLMClient(
                 server=server,
                 is_dry_run=args.server_test or args.dry_run,
+                log_dir=args.output_dir,
                 script_generator=script_generator,
             )
         elif args.benchmark_client == "genai-perf":
             client = GenAIPerfClient(
                 server=server,
                 is_dry_run=args.server_test or args.dry_run,
+                log_dir=args.output_dir,
                 script_generator=script_generator,
             )
         elif args.benchmark_client == "sglang":
             client = SGLangClient(
                 server=server,
                 is_dry_run=args.server_test or args.dry_run,
+                log_dir=args.output_dir,
                 script_generator=script_generator,
             )
         else:

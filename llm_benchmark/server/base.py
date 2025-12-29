@@ -67,7 +67,7 @@ class BenchmarkBase:
 
         if log_dir is None:
             raise ValueError("log_dir must be provided to BenchmarkBase")
-        self._log_dir = log_dir
+        self._log_dir = Path(log_dir) / self._model_name / self.image_tag
 
         # GPU architecture
         self._arch = None
@@ -88,7 +88,7 @@ class BenchmarkBase:
             self._parallel_size = {'tp': str(self.num_gpus)}
             self._load_model_config()
         else:
-            self._parallel_size = {'tp': '1'}
+            self._parallel_size = {'tp': '0'}
 
         self._container_runtime = None
         if not self.in_container:
