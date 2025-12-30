@@ -40,7 +40,8 @@ class BenchmarkBase:
                  in_container: bool = False,
                  endpoint: str = None,
                  log_dir: Path = None,
-                 script_generator: ScriptGenerator = None):
+                 script_generator: ScriptGenerator = None,
+                 keep_containers: bool = False):
 
         self.name = name
         self.image = image
@@ -52,6 +53,7 @@ class BenchmarkBase:
         self._model_config = model_config
         self._is_dry_run = dry_run
         self._in_container = in_container
+        self._keep_containers = keep_containers
         self._log_process: Optional[subprocess.Popen] = None
         self._model_path_or_id = model_path_or_id
         self.script_generator = script_generator
@@ -364,7 +366,9 @@ class BenchmarkBase:
 
     def cleanup_container(self):
         """Cleanup container."""
-        if self._is_dry_run:
+        if self._is_dry_run or self._keep_containers:
+            if self._keep_containers:
+                logger.info("Container '%s' preserved for debugging (use --keep-containers to skip cleanup)", self._container_name)
             return
 
         self._cleanup_log_processes()

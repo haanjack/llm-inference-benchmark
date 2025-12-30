@@ -69,23 +69,6 @@ class BenchmarkRunner:
             with open(self.client.total_results_file, 'w', encoding='utf-8') as f:
                 f.write('model_config,' + ','.join(self._csv_headers) + '\n')
 
-        # Global "test set" dashboard (one row per BenchmarkRunner execution)
-        self._global_dashboard_file = Path(self._output_dir) / "test_results.tsv"
-        self._global_dashboard_file.parent.mkdir(parents=True, exist_ok=True)
-        if not self._global_dashboard_file.exists():
-            with open(self._global_dashboard_file, "w", encoding="utf-8") as f:
-                f.write("\t".join([
-                    "timestamp",
-                    "model",
-                    "image_tag",
-                    "model_config",
-                    "tp_size",
-                    "test_plan",
-                    "sub_task",     # joined if multiple; empty if none
-                    "result",       # "success" or "failure"
-                    "log_path"      # path to total_results CSV if success; otherwise "N/A"
-                ]) + "\n")
-
     def _print_benchmark_info(self):
         logger.info("Benchmark plan: %s", self._test_plan)
         logger.info("Benchmark test plan:")
@@ -264,18 +247,11 @@ class BenchmarkRunner:
             return
 
         # Normal execution mode (not generating scripts)
-        try:
-            self._print_header()
-            success = self._run_benchmark(test_args, test_plans)
-        finally:
-            self.server.cleanup()
-            if not self._is_dry_run:
-                logger.info("Benchmarking complete. Results saved to %s", self.client.results_file)
-
-            self._write_test_set_dashboard_entry(
-                    success=success,
-                    result_path=self.client.total_results_file if success else None
-                )
+        self._print_header()
+        success = self._run_benchmark(test_args, test_plans)
+        if not self._is_dry_run:
+            logger.info("Benchmarking complete. Results saved to %s", self.client.results_file)
+        return success
 
     def _print_header(self):
         """Print result's table header."""
@@ -337,27 +313,4 @@ class BenchmarkRunner:
         ]
         logger.info(self._format_result_for_console(values))
 
-    # test dashboard helper
-    def _write_test_set_dashboard_entry(self, success: bool, result_path: Optional[Path] = None):
-        """Append a single row summarizing this test set execution."""
-        if self._is_dry_run:
-            return
-        model = self.server.model_name
-        image_tag = self.server.image_tag
-        model_config = Path(self.server.model_config).stem
-        test_plan = f"{self._test_plan}"
-        sub_task_str = ""
-        if self._sub_tasks:
-            sub_task_str = "+".join(self._sub_tasks)
-        with open(self._global_dashboard_file, "a", encoding="utf-8") as f:
-            f.write("\t".join([
-                datetime.now().isoformat(timespec="seconds"),
-                str(model),
-                str(image_tag),
-                str(model_config),
-                str(self.server.parallel_size['tp']),
-                test_plan,
-                sub_task_str,
-                "success" if success else "failure",
-                str(result_path) if result_path else "N/A"
-            ]) + "\n")
+

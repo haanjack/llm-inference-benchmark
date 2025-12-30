@@ -4,12 +4,13 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from datetime import datetime
 
 from llm_benchmark.server import VLLMServer, SGLangServer, RemoteServer
 from llm_benchmark.clients import VLLMClient, SGLangClient, GenAIPerfClient
 from llm_benchmark.runner import BenchmarkRunner
 from llm_benchmark.utils.script_generator import ScriptGenerator, prettify_generated_scripts
-from llm_benchmark.utils.utils import parse_env_file
+from llm_benchmark.utils.utils import parse_env_file, setup_global_dashboard, write_test_set_dashboard_entry
 
 # Configure logging
 logging.basicConfig(
@@ -101,6 +102,8 @@ def get_args():
                         help='Generate a bash script for the benchmark run.')
     parser.add_argument('--generated-script-output-dir', default='scripts/generated',
                         help='Output directory for generated scripts (default: scripts/generated)')
+    parser.add_argument('--keep-containers', action='store_true',
+                        help='Debug mode: keep containers after benchmark execution for inspection')
 
     args = parser.parse_args()
 
@@ -112,57 +115,64 @@ def get_args():
 
 def main():
     """Main function to run the benchmark."""
+    args = get_args()
+
+    script_generator = None
+    if args.generate_script:
+        args.dry_run = True  # --generate-script implies --dry-run
+        model_config_name = Path(args.model_config).stem
+        # Use /tmp directory for intermediate script generation
+        TMP_SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_script_path = TMP_SCRIPT_DIR / f"run-{model_config_name}_with_{args.benchmark_client}-{args.test_plan}.sh"
+        script_generator = ScriptGenerator(output_path=tmp_script_path, in_container=args.in_container)
+
+    envs = parse_env_file(args.env_file) if args.env_file else {}
+
+    if args.endpoint:
+        server_kwargs = {"endpoint": args.endpoint}
+    else:
+        server_kwargs = {
+            "image": args.image,
+            "model_config": args.model_config,
+            "model_path_or_id": args.model_path_or_id,
+            "model_root_dir": args.model_root_dir,
+            "gpu_devices": args.gpu_devices,
+            "num_gpus": args.num_gpus,
+            "dry_run": args.dry_run,
+            "no_warmup": args.no_warmup,
+            "in_container": args.in_container,
+            "test_plan": args.test_plan,
+            "envs": envs,
+        }
+
+    # Common arguments for all server types
+    server_kwargs.update(
+        {
+            "image": args.image,
+            "model_config": args.model_config,
+            "model_path_or_id": args.model_path_or_id,
+            "num_gpus": args.num_gpus,
+            "dry_run": args.dry_run,
+            "log_dir": args.output_dir,
+            "script_generator": script_generator,
+            "keep_containers": args.keep_containers,
+        }
+    )
+
+    logger.info("Model Name: %s", args.model_path_or_id)
+    logger.info("GPU devices: %s", args.gpu_devices)
+    logger.info("Backend: %s", args.backend)
+    logger.info("Image: %s", args.image)
+    logger.info("Benchmark Client: %s", args.benchmark_client)
+
+    # Initialize variables
+    server = None
+    client = None
+    runner = None
+    success = False
+    global_dashboard_file = setup_global_dashboard(args.output_dir)
+
     try:
-        args = get_args()
-
-        script_generator = None
-        if args.generate_script:
-            args.dry_run = True  # --generate-script implies --dry-run
-            model_config_name = Path(args.model_config).stem
-            # Use /tmp directory for intermediate script generation
-            TMP_SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
-            tmp_script_path = TMP_SCRIPT_DIR / f"run-{model_config_name}_with_{args.benchmark_client}-{args.test_plan}.sh"
-            script_generator = ScriptGenerator(output_path=tmp_script_path, in_container=args.in_container)
-
-        envs = parse_env_file(args.env_file) if args.env_file else {}
-
-        if args.endpoint:
-            server_kwargs = {"endpoint": args.endpoint}
-        else:
-            server_kwargs = {
-                "image": args.image,
-                "model_config": args.model_config,
-                "model_path_or_id": args.model_path_or_id,
-                "model_root_dir": args.model_root_dir,
-                "gpu_devices": args.gpu_devices,
-                "num_gpus": args.num_gpus,
-                "dry_run": args.dry_run,
-                "no_warmup": args.no_warmup,
-                "in_container": args.in_container,
-                "test_plan": args.test_plan,
-                "envs": envs,
-            }
-
-        # Common arguments for all server types
-        server_kwargs.update(
-            {
-                "image": args.image,
-                "model_config": args.model_config,
-                "model_path_or_id": args.model_path_or_id,
-                "num_gpus": args.num_gpus,
-                "dry_run": args.dry_run,
-                "log_dir": args.output_dir,
-                "script_generator": script_generator,
-            }
-        )
-
-        logger.info("Model Name: %s", args.model_path_or_id)
-        logger.info("GPU devices: %s", args.gpu_devices)
-        logger.info("Backend: %s", args.backend)
-        logger.info("Image: %s", args.image)
-        logger.info("Benchmark Client: %s", args.benchmark_client)
-
-
         if args.backend == "vllm":
             server = VLLMServer(**server_kwargs)
         elif args.backend == "sglang":
@@ -204,12 +214,16 @@ def main():
             test_plan=args.test_plan,
             sub_tasks=args.sub_tasks,
             is_dry_run=args.server_test,
+            output_dir=args.output_dir,
             script_generator=script_generator,
         )
 
-        runner.run()
+        try:
+            success = runner.run()
+        finally:
+            if server:
+                server.cleanup()
 
-        # After script generation, prettify the scripts
         if args.generate_script and script_generator:
             output_dir = Path(args.generated_script_output_dir)
             model_config_name = Path(args.model_config).stem
@@ -217,10 +231,21 @@ def main():
 
     except Exception as e:
         logger.exception("Benchmark failed: %s", str(e))
-        sys.exit(1)
-    except KeyboardInterrupt:
-        logger.info("Benchmark interrupted by user.")
-        sys.exit(1)
+
+    finally:
+        # Always write to dashboard, whether success or failure
+        if not args.server_test and not args.generate_script:
+            write_test_set_dashboard_entry(
+                global_dashboard_file=global_dashboard_file,
+                server=server,
+                test_plan=args.test_plan,
+                sub_tasks=args.sub_tasks,
+                success=success,
+                result_path=client.total_results_file if (success and client) else None,
+                is_dry_run=args.dry_run
+            )
+
+        sys.exit(0 if success else 1)
 
 
 if __name__ == "__main__":
