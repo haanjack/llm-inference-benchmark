@@ -424,11 +424,16 @@ class MarkdownReportGenerator:
                 model_results = test_results[test_results['model'] == model]
                 total = len(model_results)
                 success = len(model_results[model_results['result'] == 'success'])
+                failures = len(model_results[model_results['result'] == 'failure'])
+                incomplete = len(model_results[model_results['result'] == 'incomplete'])
 
-                # Determine status icon
+                # Determine status icon and text
                 if success == total:
                     status_icon = "✓"
                     status_text = "Complete"
+                elif failures > 0:
+                    status_icon = "✗"
+                    status_text = "Has Failures"
                 else:
                     status_icon = "⚠"
                     status_text = "In Progress"

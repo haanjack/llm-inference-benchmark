@@ -76,7 +76,11 @@ python tools/reports/generate_markdown_report.py \
 ## How It Works
 
 1. **Updates test_results.tsv** - Runs progress report to get current test status
-2. **Loads benchmark data** - Reads all CSV files referenced in test_results.tsv
+   - `success`: All expected test cases completed
+   - `failure`: Test encountered errors (with specific failure reason)
+   - `incomplete`: Test was interrupted/stopped (partial results exist)
+   - `not_tested`: No results exist yet
+2. **Loads benchmark data** - Reads all CSV files referenced in test_results.tsv (only successful and incomplete tests with data)
 3. **Sorts and groups data** - Organizes data by:
    - model_config (alphabetical)
    - tp_size (increasing)
@@ -152,7 +156,13 @@ Shows test status for each configuration:
 | image_tag | Docker image tag |
 | tp_size | Tensor parallelism size |
 | test_plan | Test plan name |
-| result | Status (✓ success, × failure, etc.) |
+| result | Status: `success`, `failure`, `incomplete`, or `not_tested` |
+
+**Status Meanings**:
+- **`success`**: Test completed fully with all expected results
+- **`failure`**: Test encountered an error/exception and failed to complete (has specific error reason)
+- **`incomplete`**: Test was stopped or interrupted during execution (has partial results but not all expected data points)
+- **`not_tested`**: Test has not been run yet
 
 ### TP Comparison Plots
 
