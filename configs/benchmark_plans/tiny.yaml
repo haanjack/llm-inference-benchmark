@@ -1,0 +1,11 @@
+# test_args:
+# - random-range-ratio: 0.1
+
+test_scenarios:
+- name: "oneshot"
+  description: "Balanced test with 1k input and 1k output tokens"
+  request_rate: 0 # inf
+  concurrency: 1
+  input_length: 256
+  output_length: 128
+  num_iteration: 4

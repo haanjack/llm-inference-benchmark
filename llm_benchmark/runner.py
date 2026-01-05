@@ -312,5 +312,3 @@ class BenchmarkRunner:
             f"{metrics['request_throughput_rps']:.2f}", f"{metrics['output_token_throughput_tps']:.2f}", f"{metrics['total_token_throughput_tps']:.2f}"
         ]
         logger.info(self._format_result_for_console(values))
-
-
