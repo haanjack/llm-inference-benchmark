@@ -16,8 +16,12 @@ VLLM_IMAGE = "docker.io/rocm/vllm:rocm7.0.0_vllm_0.11.1_20251103"
 class VLLMClient(BenchmarkClientBase):
     """vLLM benchmark client."""
 
-    def __init__(self, server: BenchmarkBase, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
-        super().__init__("vllm", server, is_dry_run, script_generator)
+    def __init__(self,
+            server: BenchmarkBase,
+            is_dry_run: bool = False,
+            log_dir: Path = None,
+            script_generator: ScriptGenerator = None):
+        super().__init__("vllm", server, is_dry_run, log_dir, script_generator)
 
     def run_single_benchmark(self,
                              test_args: Dict[str, Any],
@@ -145,12 +149,12 @@ class VLLMClient(BenchmarkClientBase):
             'e2el_p99_ms': r'P99 E2EL \(ms\):\s*([\d.]+)',
             'request_throughput_rps': r'Request throughput \(req/s\):\s*([\d.]+)',
             'output_token_throughput_tps': r'Output token throughput \(tok/s\):\s*([\d.]+)',
-            'total_token_throughput_tps': r'Total Token throughput \(tok/s\):\s*([\d.]+)'
+            'total_token_throughput_tps': r'Total token throughput \(tok/s\):\s*([\d.]+)'
         }
         log_content = log_file.read_text()
 
         for key, pattern in patterns.items():
-            match = re.search(pattern, log_content)
+            match = re.search(pattern, log_content, re.IGNORECASE)
             metrics[key] = float(match.group(1)) if match else 0.0
 
         return metrics

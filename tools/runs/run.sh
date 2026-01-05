@@ -7,7 +7,6 @@ test_plan_override=${3:-""} # optional test plan to override run_list test_plan
 
 # list of hostnames to distribute benchmarks across
 # e.g. host_list=("host1" "host2" "host3")
-# host_list=(mi355-gpu-2 mi355-gpu-31)
 host_list=()
 
 # docker images for different backends

@@ -15,8 +15,12 @@ GENAI_PERF_IMAGE = "nvcr.io/nvidia/tritonserver:25.10-py3-sdk"
 class GenAIPerfClient(BenchmarkClientBase):
     """GenAI-Perf benchmark client."""
 
-    def __init__(self, server: BenchmarkBase, is_dry_run: bool = False, script_generator: ScriptGenerator = None):
-        super().__init__("genai-perf", server, is_dry_run, script_generator)
+    def __init__(self,
+                server: BenchmarkBase,
+                is_dry_run: bool = False,
+                log_dir: Path = None,
+                script_generator: ScriptGenerator = None):
+        super().__init__("genai-perf", server, is_dry_run, log_dir, script_generator)
 
     def run_single_benchmark(self,
                              test_args: Dict[str, Any],

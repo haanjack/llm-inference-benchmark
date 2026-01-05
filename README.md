@@ -267,7 +267,9 @@ python tools/profiler/visualize_layerwise_profile.py \\
     --json-trace Llama31-8b-FP8.json \\
     --output-directory profile_breakdown --plot-metric pct_cuda_time
 ```
+## Documentation
 
+- Plotter usage and GUI: [docs/README_PLOTTER.md](docs/README_PLOTTER.md)
 # TODO
 1. Having test inferenceMax options:
     - https://github.com/InferenceMAX/InferenceMAX/blob/main/benchmarks/70b_fp4_mi355x_docker.sh
