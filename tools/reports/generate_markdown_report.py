@@ -155,7 +155,7 @@ class MarkdownReportGenerator:
 
         For each (image_tag, model_config, request_rate, input_length, output_length) combination,
         create a 1x4 plot comparing different TP sizes.
-        Uses plot_config_tp_comparison which shows TP sizes as series across latency metrics.
+        Uses plot_tp_comparison_for_config which shows TP sizes as series across latency metrics.
 
         Args:
             model: Model name
@@ -209,7 +209,7 @@ class MarkdownReportGenerator:
             if filtered.empty:
                 continue
 
-            # Generate TP comparison plot using plot_config_tp_comparison
+            # Generate TP comparison plot using plot_tp_comparison_for_config
             try:
                 config_sanitized = self.sanitize_path(config)
                 request_rate_str = f"rr{int(request_rate)}" if request_rate == int(request_rate) else f"rr{request_rate}"
@@ -217,7 +217,7 @@ class MarkdownReportGenerator:
                 plot_path = model_dir / plot_filename
 
                 title = f"TP Comparison | {tag} | {config} | RR: {request_rate} | ISL: {isl} / OSL: {osl}"
-                fig = self.plotter.plot_config_tp_comparison(
+                fig = self.plotter.plot_tp_comparison_for_config(
                     filtered,
                     title_prefix=title,
                     output_file=str(plot_path),
@@ -237,7 +237,7 @@ class MarkdownReportGenerator:
 
         For each (tp_size, request_rate, input_length, output_length) combination,
         create a 1x4 plot comparing different image_tags/configs.
-        Uses plot_tp_config_comparison which shows configs as series across latency metrics.
+        Uses plot_config_comparison_for_tp which shows configs as series across latency metrics.
 
         Args:
             model: Model name
@@ -288,14 +288,14 @@ class MarkdownReportGenerator:
             if filtered.empty:
                 continue
 
-            # Generate config comparison plot using plot_tp_config_comparison
+            # Generate config comparison plot using plot_config_comparison_for_tp
             try:
                 request_rate_str = f"rr{int(request_rate)}" if request_rate == int(request_rate) else f"rr{request_rate}"
                 plot_filename = f"{self.sanitize_model_name(model)}_config_compare_tp{tp_size}_{request_rate_str}_isl{isl}_osl{osl}.png"
                 plot_path = model_dir / plot_filename
 
                 title = f"Configuration Comparison | TP: {tp_size} | RR: {request_rate} | ISL: {isl} / OSL: {osl}"
-                fig = self.plotter.plot_tp_config_comparison(
+                fig = self.plotter.plot_config_comparison_for_tp(
                     filtered,
                     title_prefix=title,
                     output_file=str(plot_path),

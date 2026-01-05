@@ -277,7 +277,7 @@ python tools/reports/generate_progress_report.py \
   --output logs/test_results_generated.tsv
 ```
 
-See [README_REPOTER.md](README_REPOTER.md) for details.
+See [README_REPORTER.md](README_REPORTER.md) for details.
 
 ### Plot Results
 

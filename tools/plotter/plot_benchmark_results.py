@@ -526,7 +526,7 @@ class BenchmarkPlotter:
 
         return fig
 
-    def plot_config_tp_comparison(self,
+    def plot_tp_comparison_for_config(self,
                                   df: pd.DataFrame,
                                   title_prefix: str = "",
                                   output_file: Optional[str] = None,
@@ -656,7 +656,7 @@ class BenchmarkPlotter:
             print(f"Figure saved to {output_file}")
         return fig
 
-    def plot_tp_config_comparison(self,
+    def plot_config_comparison_for_tp(self,
                                   df: pd.DataFrame,
                                   title_prefix: str = "",
                                   output_file: Optional[str] = None,
@@ -1016,7 +1016,7 @@ def main():
                     os.makedirs(args.output_dir, exist_ok=True)
                     out_file = os.path.join(args.output_dir, out_file)
                 latencies = [x.strip() for x in args.latencies.split(',') if x.strip()]
-                plotter.plot_config_tp_comparison(filtered_data, title_prefix=title, output_file=out_file,
+                plotter.plot_tp_comparison_for_config(filtered_data, title_prefix=title, output_file=out_file,
                                                   throughput=args.throughput, latencies=latencies)
                 plt.show()
             else:
@@ -1038,7 +1038,7 @@ def main():
                         safe_model = Path(str(args.model)).name
                         out_file = os.path.join(args.output_dir, f"{safe_model}_{args.model_config}_isl{isl}_osl{osl}_tp_compare.png")
                     latencies = [x.strip() for x in args.latencies.split(',') if x.strip()]
-                    plotter.plot_config_tp_comparison(dfc, title_prefix=title, output_file=out_file,
+                    plotter.plot_tp_comparison_for_config(dfc, title_prefix=title, output_file=out_file,
                                                       throughput=args.throughput, latencies=latencies)
                 plt.show()
         elif args.compare_configs:
@@ -1074,7 +1074,7 @@ def main():
                     os.makedirs(args.output_dir, exist_ok=True)
                     out_file = os.path.join(args.output_dir, out_file)
                 latencies = [x.strip() for x in args.latencies.split(',') if x.strip()]
-                plotter.plot_tp_config_comparison(dfm, title_prefix=title, output_file=out_file,
+                plotter.plot_config_comparison_for_tp(dfm, title_prefix=title, output_file=out_file,
                                                   throughput=args.throughput, latencies=latencies)
                 plt.show()
             else:
@@ -1094,7 +1094,7 @@ def main():
                         safe_model = Path(str(args.model)).name
                         out_file = os.path.join(args.output_dir, f"{safe_model}_tp{args.tp_size}_isl{isl}_osl{osl}_config_compare.png")
                     latencies = [x.strip() for x in args.latencies.split(',') if x.strip()]
-                    plotter.plot_tp_config_comparison(dfc, title_prefix=title, output_file=out_file,
+                    plotter.plot_config_comparison_for_tp(dfc, title_prefix=title, output_file=out_file,
                                                       throughput=args.throughput, latencies=latencies)
                 plt.show()
         else:

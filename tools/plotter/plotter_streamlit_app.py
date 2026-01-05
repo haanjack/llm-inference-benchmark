@@ -90,7 +90,7 @@ if run:
             plotter = BenchmarkPlotter()
             # Split per ISL/OSL when not specified
             if isl is not None and osl is not None:
-                plotter.plot_config_tp_comparison(filtered, title_prefix=f"{title} | ISL={isl}, OSL={osl}",
+                plotter.plot_tp_comparison_for_config(filtered, title_prefix=f"{title} | ISL={isl}, OSL={osl}",
                                                   output_file=str(out_file), throughput=throughput, latencies=latencies)
             else:
                 combos = filtered[['input_length','output_length']].drop_duplicates().sort_values(['input_length','output_length'])
@@ -102,7 +102,7 @@ if run:
                         continue
                     name, ext = out_file.stem, out_file.suffix or '.png'
                     out_file_islosl = out_dir / f"{name}_isl{i_isl}_osl{i_osl}{ext}"
-                    plotter.plot_config_tp_comparison(dfc, title_prefix=f"{title} | ISL={i_isl}, OSL={i_osl}",
+                    plotter.plot_tp_comparison_for_config(dfc, title_prefix=f"{title} | ISL={i_isl}, OSL={i_osl}",
                                                       output_file=str(out_file_islosl), throughput=throughput, latencies=latencies)
             st.success(f"Charts saved to {out_dir}")
     else:
@@ -119,7 +119,7 @@ if run:
             out_file = out_dir / fname
             plotter = BenchmarkPlotter()
             if isl is not None and osl is not None:
-                plotter.plot_tp_config_comparison(filtered, title_prefix=f"{title} | ISL={isl}, OSL={osl}",
+                plotter.plot_config_comparison_for_tp(filtered, title_prefix=f"{title} | ISL={isl}, OSL={osl}",
                                                   output_file=str(out_file), throughput=throughput, latencies=latencies)
             else:
                 combos = filtered[['input_length','output_length']].drop_duplicates().sort_values(['input_length','output_length'])
@@ -131,7 +131,7 @@ if run:
                         continue
                     name, ext = out_file.stem, out_file.suffix or '.png'
                     out_file_islosl = out_dir / f"{name}_isl{i_isl}_osl{i_osl}{ext}"
-                    plotter.plot_tp_config_comparison(dfc, title_prefix=f"{title} | ISL={i_isl}, OSL={i_osl}",
+                    plotter.plot_config_comparison_for_tp(dfc, title_prefix=f"{title} | ISL={i_isl}, OSL={i_osl}",
                                                       output_file=str(out_file_islosl), throughput=throughput, latencies=latencies)
             st.success(f"Charts saved to {out_dir}")
 

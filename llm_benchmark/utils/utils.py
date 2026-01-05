@@ -74,7 +74,7 @@ def write_test_set_dashboard_entry(
         model = server.model_name if server else "unknown"
         image_tag = server.image_tag if server else "unknown"
         model_config = Path(server.model_config).stem if server else "unknown"
-        tp_size = str(server.parallel_size.get('tp', '1')) if server else "unknown"
+        tp_size = str(server.parallel_size.get('tp', '0')) if server else "unknown"
     except Exception as e:
         logger.warning("Could not extract server info for dashboard entry: %s", e)
         model = "unknown"
