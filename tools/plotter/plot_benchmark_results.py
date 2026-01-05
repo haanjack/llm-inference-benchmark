@@ -433,7 +433,7 @@ class BenchmarkPlotter:
         ax.set_ylabel('Total Token Throughput per GPU (tok/s/gpu)', fontsize=11, fontweight='bold')
         ax.set_title(f'Throughput vs {y_label}', fontsize=12, fontweight='bold')
         # Single legend: series only (tp_size or config; else ISL/OSL fallback)
-        ax.legend(loc='best', fontsize=9)
+        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.25), fontsize=9, ncol=4)
         ax.grid(True, alpha=0.3)
 
     def plot_comparison(self,
@@ -517,7 +517,7 @@ class BenchmarkPlotter:
         ax.set_ylabel('Total Token Throughput per GPU (tok/s/gpu)', fontsize=12, fontweight='bold')
         ax.set_title(f'Throughput vs {y_label} (Comparison)', fontsize=14, fontweight='bold')
         # Single legend: series only
-        ax.legend(loc='best', fontsize=10)
+        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.25), fontsize=10, ncol=4)
         ax.grid(True, alpha=0.3)
 
         if output_file:
@@ -649,7 +649,7 @@ class BenchmarkPlotter:
         for ax in axes:
             handles, labels = ax.get_legend_handles_labels()
             if labels:
-                ax.legend(title='TP Size', fontsize=9, loc='best')
+                ax.legend(title='TP Size', fontsize=9, loc='lower center', bbox_to_anchor=(0.5, -0.35), ncol=4)
         plt.tight_layout()
         if output_file:
             fig.savefig(output_file, dpi=300, bbox_inches='tight')
@@ -697,7 +697,7 @@ class BenchmarkPlotter:
         # Dynamic 1xN layout based on selected latencies
         n_plots = len(metric_specs)
         fig_width = max(6 * n_plots, 8)
-        fig_height = 5
+        fig_height = 7
         fig, axes = plt.subplots(1, n_plots, figsize=(fig_width, fig_height))
         if n_plots == 1:
             axes = [axes]
@@ -705,9 +705,9 @@ class BenchmarkPlotter:
 
         # Series labels
         if 'image_tag' in dfx.columns:
-            dfx['series_label'] = dfx['model_config'].astype(str) + ' | ' + dfx['image_tag'].astype(str)
+            dfx['series_label'] = dfx['model_config'].astype(str).str.replace('configs/models/', '', regex=False) + ' | ' + dfx['image_tag'].astype(str)
         else:
-            dfx['series_label'] = dfx['model_config'].astype(str)
+            dfx['series_label'] = dfx['model_config'].astype(str).str.replace('configs/models/', '', regex=False)
 
         series_labels = sorted(dfx['series_label'].unique())
         cmap = plt.get_cmap('tab10')
@@ -773,7 +773,7 @@ class BenchmarkPlotter:
         for ax in axes:
             handles, labels = ax.get_legend_handles_labels()
             if labels:
-                ax.legend(title='Config | Tag', fontsize=9, loc='best')
+                ax.legend(title='Config | Tag', fontsize=9, loc='lower center', bbox_to_anchor=(0.5, -0.45), ncol=1)
         plt.tight_layout()
         if output_file:
             fig.savefig(output_file, dpi=300, bbox_inches='tight')

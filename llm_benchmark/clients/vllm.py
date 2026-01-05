@@ -149,12 +149,12 @@ class VLLMClient(BenchmarkClientBase):
             'e2el_p99_ms': r'P99 E2EL \(ms\):\s*([\d.]+)',
             'request_throughput_rps': r'Request throughput \(req/s\):\s*([\d.]+)',
             'output_token_throughput_tps': r'Output token throughput \(tok/s\):\s*([\d.]+)',
-            'total_token_throughput_tps': r'Total Token throughput \(tok/s\):\s*([\d.]+)'
+            'total_token_throughput_tps': r'Total [Tt]oken throughput \(tok/s\):\s*([\d.]+)'
         }
         log_content = log_file.read_text()
 
         for key, pattern in patterns.items():
-            match = re.search(pattern, log_content)
+            match = re.search(pattern, log_content, re.IGNORECASE)
             metrics[key] = float(match.group(1)) if match else 0.0
 
         return metrics

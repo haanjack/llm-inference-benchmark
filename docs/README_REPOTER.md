@@ -13,7 +13,7 @@ This tool helps you track benchmark progress when tests are run separately or di
 Generate a report from your run_list file:
 
 ```bash
-python tools/reports/generate_progress_report.py --run-list tests/run_list/total.sh
+python tools/reports/generate_progress_report.py --run-list tests/run_list/run_list.sh
 ```
 
 This creates `logs/test_results_generated.tsv` with the status of all tests.
@@ -22,7 +22,7 @@ This creates `logs/test_results_generated.tsv` with the status of all tests.
 
 ```bash
 python tools/reports/generate_progress_report.py \
-  --run-list tests/run_list/total.sh \
+  --run-list tests/run_list/run_list.sh \
   --output logs/my_custom_results.tsv
 ```
 
@@ -30,8 +30,32 @@ python tools/reports/generate_progress_report.py \
 
 ```bash
 python tools/reports/generate_progress_report.py \
-  --run-list tests/run_list/total.sh \
+  --run-list tests/run_list/run_list.sh \
   --verbose
+```
+
+### Generate Run Lists for Incomplete/Not Tested
+
+Generate `incomplete.sh` and `not_tested.sh` files for rerunning failed or pending tests:
+
+```bash
+python tools/reports/generate_progress_report.py \
+  --run-list tests/run_list/run_list.sh \
+  --generate-run-list
+```
+
+This creates:
+- `tests/run_list/incomplete.sh` - Tests with partial results
+- `tests/run_list/not_tested.sh` - Tests that haven't been run yet
+
+These files can be used directly with the multi-run tool:
+
+```bash
+# Run only incomplete tests
+bash tools/runs/run.sh benchmark tests/run_list/incomplete.sh
+
+# Run only not tested items
+bash tools/runs/run.sh benchmark tests/run_list/not_tested.sh
 ```
 
 ## How It Works
@@ -41,6 +65,7 @@ python tools/reports/generate_progress_report.py \
 3. **Checks for results** - Looks for `logs/{model}/{image_tag}/total_results_{backend}_{client}.csv`
 4. **Compares counts** - Verifies CSV has all expected benchmark results
 5. **Generates report** - Outputs TSV file with status for each test
+6. **Creates run lists** (optional) - Generates `incomplete.sh` and `not_tested.sh` for rerunning tests
 
 ## Run List File Format
 
@@ -74,7 +99,53 @@ Generated TSV file contains:
 
 - **`success`** - CSV exists and has all expected benchmark results
 - **`incomplete`** - CSV exists but is missing some results
+- **`failure`** - Test run encountered errors (detected in server logs)
 - **`not_tested`** - No CSV file exists for this test setup
+
+## Generated Run Lists
+
+When using `--generate-run-list`, the tool creates executable shell scripts for incomplete and not tested benchmarks:
+
+### incomplete.sh
+
+Contains tests that:
+- Have CSV results files
+- Are missing some expected test cases
+- May have encountered errors during execution
+
+Use this to retry tests that didn't complete fully.
+
+### not_tested.sh
+
+Contains tests that:
+- Have no CSV results at all
+- Haven't been executed yet
+
+Use this to run remaining tests from your original run_list.
+
+### File Location
+
+Generated files are placed in the same directory as your input run_list:
+```
+tests/run_list/
+├── run_list.sh           # Your original run_list
+├── incomplete.sh         # Auto-generated incomplete tests
+└── not_tested.sh         # Auto-generated not tested tests
+```
+
+### Using Generated Run Lists
+
+Run incomplete tests:
+```bash
+bash tools/runs/run.sh benchmark tests/run_list/incomplete.sh
+```
+
+Run not tested items:
+```bash
+bash tools/runs/run.sh benchmark tests/run_list/not_tested.sh
+```
+
+See [README_RUN.md](README_RUN.md) for more details on the multi-run tool.
 
 ## Requirements
 
@@ -88,10 +159,10 @@ pip install pyyaml
 
 ## Examples
 
-### Check which tests from total.sh are done
+### Check which tests from run_list.sh are done
 
 ```bash
-python tools/reports/generate_progress_report.py --run-list tests/run_list/total.sh
+python tools/reports/generate_progress_report.py --run-list tests/run_list/run_list.sh
 ```
 
 Output:
@@ -115,6 +186,22 @@ python tools/reports/generate_progress_report.py \
   --output logs/subset_results.tsv
 ```
 
+### Generate run lists and rerun incomplete tests
+
+```bash
+# Generate report and create incomplete.sh/not_tested.sh
+python tools/reports/generate_progress_report.py \
+  --run-list tests/run_list/run_list.sh \
+  --generate-run-list
+
+# Run only the incomplete tests
+bash tools/runs/run.sh benchmark tests/run_list/incomplete.sh
+
+# Check progress again
+python tools/reports/generate_progress_report.py \
+  --run-list tests/run_list/run_list.sh
+```
+
 ## Troubleshooting
 
 ### "Test plan file not found"
@@ -131,3 +218,7 @@ The run_list file may be empty or have no valid lines. Check that:
 ### Timestamps are empty
 
 The CSV files don't exist yet (status is `not_tested`), so no timestamp is available.
+
+### Generated run_list files not created
+
+The `--generate-run-list` flag must be specified for the tool to create `incomplete.sh` and `not_tested.sh`. If all tests show `success`, no files will be generated since there's nothing to rerun.
