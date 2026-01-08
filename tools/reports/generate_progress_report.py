@@ -150,13 +150,14 @@ class TestResultsGenerator:
 
         return total
 
-    def check_csv_results(self, csv_path: Path, expected_count: int, tp_size: int) -> Tuple[bool, int]:
-        """Check if CSV file exists and has expected results for this TP size.
+    def check_csv_results(self, csv_path: Path, expected_count: int, tp_size: int, model_config: str = None) -> Tuple[bool, int]:
+        """Check if CSV file exists and has expected results for this TP size and model_config.
 
         Args:
             csv_path: Path to the CSV file
             expected_count: Expected number of test results
             tp_size: Tensor parallelism size to filter by
+            model_config: Optional model configuration to filter by (e.g., configs/models/kimi-k2-vllm-0.yaml)
 
         Returns:
             Tuple of (has_all_results, actual_count)
@@ -171,19 +172,30 @@ class TestResultsGenerator:
             if len(lines) < 2:  # Only header or empty
                 return False, 0
 
-            # Parse header to find tp_size column
+            # Parse header to find tp_size and model_config columns
             header = lines[0].strip().split(',')
             if 'tp_size' not in header:
                 return False, 0
 
             tp_size_idx = header.index('tp_size')
+            model_config_idx = header.index('model_config') if 'model_config' in header else None
 
-            # Count lines matching this tp_size
+            # Extract config basename if model_config provided
+            config_basename = None
+            if model_config and model_config_idx is not None:
+                config_basename = Path(model_config).stem
+
+            # Count lines matching this tp_size and model_config
             count = 0
             for line in lines[1:]:
                 parts = line.strip().split(',')
                 if len(parts) > tp_size_idx and parts[tp_size_idx].strip() == str(tp_size):
-                    count += 1
+                    # If model_config filtering is needed, also check that
+                    if config_basename and model_config_idx is not None:
+                        if len(parts) > model_config_idx and parts[model_config_idx].strip() == config_basename:
+                            count += 1
+                    else:
+                        count += 1
 
             return count >= expected_count, count
         except Exception as e:
@@ -242,37 +254,31 @@ class TestResultsGenerator:
         try:
             # If model_config and tp_size provided, look for errors in specific configuration directory
             if model_config and tp_size:
-                # Look for tp{tp_size} directories
-                specific_dirs = []
-                for item in search_dir.glob(f"*tp{tp_size}*"):
-                    if item.is_dir():
-                        specific_dirs.append(item)
+                # Extract config base name (e.g., "kimi-k2-vllm-0" from "configs/models/kimi-k2-vllm-0.yaml")
+                config_basename = Path(model_config).stem
 
-                # Search in specific directories first
-                for specific_dir in specific_dirs:
+                # Look for directory matching both config name and tp_size
+                specific_dir = search_dir / f"{config_basename}-tp{tp_size}"
+
+                if specific_dir.exists():
                     server_logs_dir = specific_dir / "server_logs"
-                    if not server_logs_dir.exists():
-                        continue
+                    if server_logs_dir.exists():
+                        # Find the most recently created log file
+                        log_files = list(server_logs_dir.glob("*.txt"))
+                        if log_files:
+                            # Get the most recent file by modification time
+                            latest_log = max(log_files, key=lambda f: f.stat().st_mtime)
 
-                    # Find the most recently created log file
-                    log_files = list(server_logs_dir.glob("*.txt"))
-                    if not log_files:
-                        continue
+                            try:
+                                content = latest_log.read_text(errors='ignore').lower()
+                                for pattern in error_patterns:
+                                    if pattern in content:
+                                        logger.debug(f"Found error pattern '{pattern}' in {specific_dir.name} latest log {latest_log.name}")
+                                        return True
+                            except Exception as e:
+                                logger.debug(f"Error reading log file {latest_log}: {e}")
 
-                    # Get the most recent file by modification time
-                    latest_log = max(log_files, key=lambda f: f.stat().st_mtime)
-
-                    try:
-                        content = latest_log.read_text(errors='ignore').lower()
-                        for pattern in error_patterns:
-                            if pattern in content:
-                                logger.debug(f"Found error pattern '{pattern}' in latest log {latest_log}")
-                                return True
-                    except Exception as e:
-                        logger.debug(f"Error reading log file {latest_log}: {e}")
-                        continue
-
-                # If no specific errors found, return False (don't check all logs)
+                # No errors found in the specific configuration directory
                 return False
 
             # Otherwise, look for most recent server_logs file recursively (backward compatibility)
@@ -326,11 +332,11 @@ class TestResultsGenerator:
                 else:
                     expected_count = self.count_expected_tests(scenarios)
 
-                # Check for CSV results filtered by tp_size
+                # Check for CSV results filtered by tp_size and model_config
                 csv_path = self.logs_dir / parsed['model'] / parsed['image_tag'] / \
                           f"total_results_{parsed['backend']}_{parsed['client']}.csv"
 
-                has_all, actual_count = self.check_csv_results(csv_path, expected_count, parsed['tp_size'])
+                has_all, actual_count = self.check_csv_results(csv_path, expected_count, parsed['tp_size'], parsed['model_config'])
                 has_errors = self.check_server_logs_for_errors(self.logs_dir, parsed['model'], parsed['image_tag'],
                                                                parsed['model_config'], parsed['tp_size'])
 
@@ -345,6 +351,7 @@ class TestResultsGenerator:
                     timestamp = 'N/A'
                 elif has_all:
                     # CSV exists and has all results for this TP size
+                    # Test completed successfully (has all expected results)
                     status = 'success'
                     log_path = str(csv_path)
                     timestamp = self.get_csv_modification_time(csv_path)
@@ -543,8 +550,8 @@ Examples:
     parser.add_argument(
         '--output',
         type=Path,
-        default=Path('logs/test_results_generated.tsv'),
-        help='Output file path (default: logs/test_results_generated.tsv)'
+        default=Path('logs/test_results.tsv'),
+        help='Output file path (default: logs/test_results.tsv)'
     )
 
     parser.add_argument(
