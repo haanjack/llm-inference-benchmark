@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import re
+import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 from collections import defaultdict
@@ -149,6 +150,70 @@ class MarkdownReportGenerator:
             Set of unique model names
         """
         return set(test_results['model'].unique()) if 'model' in test_results.columns else set()
+
+    def load_config_details(self, config_path: str) -> Dict:
+        """Load configuration details from YAML file.
+
+        Args:
+            config_path: Path to config file (e.g., 'configs/models/kimi-k2-vllm-0.yaml')
+
+        Returns:
+            Dictionary with envs, server_args, and compilation_config sections
+        """
+        try:
+            full_path = Path(config_path)
+            if not full_path.exists():
+                logger.warning(f"Config file not found: {config_path}")
+                return {}
+
+            with open(full_path, 'r') as f:
+                config = yaml.safe_load(f)
+
+            return {
+                'envs': config.get('envs', {}),
+                'server_args': config.get('server_args', {}),
+                'compilation_config': config.get('compilation_config', {})
+            }
+        except Exception as e:
+            logger.error(f"Error loading config {config_path}: {e}")
+            return {}
+
+    def format_config_value(self, value) -> str:
+        """Format a config value for display in table.
+
+        Args:
+            value: Config value (can be dict, list, or scalar)
+
+        Returns:
+            Formatted string
+        """
+        if isinstance(value, dict):
+            if not value:
+                return "-"
+            # Format as key: value pairs, but handle nested structures
+            items = []
+            for k, v in value.items():
+                if isinstance(v, list):
+                    if len(v) > 10:
+                        items.append(f"{k}: [{len(v)} items]")
+                    else:
+                        items.append(f"{k}: {v}")
+                elif isinstance(v, dict):
+                    items.append(f"{k}: {{{len(v)} keys}}")
+                else:
+                    items.append(f"{k}: {v}")
+            return "<br>".join(items[:10])  # Limit to first 10 items
+        elif isinstance(value, list):
+            if not value:
+                return "-"
+            if len(value) > 10:
+                # Show first few and count
+                return f"[{len(value)} items: {', '.join(map(str, value[:3]))}...]"
+            return f"[{', '.join(map(str, value))}]"
+        elif value is None or value == "":
+            return "-"
+        else:
+            return str(value)
 
     def generate_tp_comparison_plots(self, model: str) -> Dict[Tuple, Optional[Path]]:
         """Generate TP comparison plots for a model.
@@ -330,15 +395,9 @@ class MarkdownReportGenerator:
         # Filter test results for this model
         model_results = test_results[test_results['model'] == model]
 
-        # Get source CSV file paths
-        source_test_results = self.logs_dir / "test_results.tsv"
-        source_benchmark_data = self.logs_dir / "total_results.tsv"
-
         with open(report_path, 'w', encoding='utf-8') as f:
             # Header
             f.write(f"# Benchmark Report: {model}\n\n")
-            f.write(f"**Source Test Results:** `{source_test_results}`\n\n")
-            f.write(f"**Source Benchmark Data:** `{source_benchmark_data}`\n\n")
 
             # Progress Summary Table
             f.write("## Progress Summary\n\n")
@@ -361,6 +420,43 @@ class MarkdownReportGenerator:
                 }.get(result, '?')
 
                 f.write(f"| {config} | {tag} | {tp} | {plan} | {result_emoji} {result} |\n")
+
+            # Configuration Details Section
+            f.write("\n## Configuration Details\n\n")
+
+            # Get unique config files for this model
+            unique_configs = sorted(model_results['model_config'].unique())
+
+            if unique_configs:
+                # Load all configs
+                config_details = {}
+                for config_path in unique_configs:
+                    details = self.load_config_details(config_path)
+                    if details:
+                        config_details[config_path] = details
+
+                if config_details:
+                    # Create table header
+                    f.write("| Config File | Environment Variables | Server Arguments | Compilation Config |\n")
+                    f.write("|---|---|---|---|\n")
+
+                    for config_path in unique_configs:
+                        if config_path not in config_details:
+                            continue
+
+                        details = config_details[config_path]
+                        config_name = Path(config_path).stem
+
+                        # Format each section
+                        envs_str = self.format_config_value(details.get('envs', {}))
+                        server_args_str = self.format_config_value(details.get('server_args', {}))
+                        comp_config_str = self.format_config_value(details.get('compilation_config', {}))
+
+                        f.write(f"| `{config_name}` | {envs_str} | {server_args_str} | {comp_config_str} |\n")
+                else:
+                    f.write("_No configuration details available._\n\n")
+            else:
+                f.write("_No configurations found._\n\n")
 
             # TP Comparison Section
             if tp_plots:
@@ -406,15 +502,9 @@ class MarkdownReportGenerator:
         """
         index_path = self.reports_dir / "README.md"
 
-        # Get source CSV file paths
-        source_test_results = self.logs_dir / "test_results.tsv"
-        source_benchmark_data = self.logs_dir / "total_results.tsv"
-
         with open(index_path, 'w', encoding='utf-8') as f:
             f.write("# Benchmark Reports\n\n")
             f.write("Complete benchmark progress and analysis reports.\n\n")
-            f.write(f"**Source Test Results:** `{source_test_results}`\n\n")
-            f.write(f"**Source Benchmark Data:** `{source_benchmark_data}`\n\n")
 
             f.write("## Summary\n\n")
             f.write("| Model | Tests | Status | Report |\n")

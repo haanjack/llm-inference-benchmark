@@ -267,9 +267,92 @@ python tools/profiler/visualize_layerwise_profile.py \\
     --json-trace Llama31-8b-FP8.json \\
     --output-directory profile_breakdown --plot-metric pct_cuda_time
 ```
+## Reporting and Analysis
+
+### Progress Report Generation
+
+Generate progress reports to track benchmark completion status across multiple test configurations:
+
+```bash
+# Generate progress report from a run list
+python tools/reports/generate_progress_report.py \
+  --run-list tests/run_list/total.sh
+
+# Generate with script files for incomplete/untested cases
+python tools/reports/generate_progress_report.py \
+  --run-list tests/run_list/total.sh \
+  --generate-run-list
+```
+
+This creates `logs/test_results.tsv` with test status (success/failure/incomplete/not_tested) for each configuration.
+
+### Markdown Report Generation
+
+Generate comprehensive markdown reports with progress tables, configuration details, and comparison plots:
+
+```bash
+# Generate full reports with default metrics (e2e,itl,ttft,interactivity)
+python tools/reports/generate_markdown_report.py \
+  --run-list tests/run_list/total.sh
+
+# Generate with custom latency metrics
+python tools/reports/generate_markdown_report.py \
+  --run-list tests/run_list/total.sh \
+  --latencies e2e,itl,interactivity
+```
+
+Generated reports include:
+- **Progress Summary**: Test status for each model/config/TP combination
+- **Configuration Details**: Environment variables, server arguments, and compilation settings
+- **TP Comparison Plots**: Compare different tensor parallel sizes for same configuration
+- **Config Comparison Plots**: Compare different configurations for same TP size
+- **Master Index**: Overview of all models with status and links to detailed reports
+
+Reports are saved to `reports/` directory with model-specific subdirectories for plots.
+
+### Sample Report Visualizations
+
+The generated markdown reports include comparison plots showing throughput vs latency metrics. Here are examples from LLaMA-3.1-70B benchmark:
+
+**TP Size Comparison** - Performance comparison across different tensor parallel sizes:
+![TP Comparison Example](assets/llama70_tp_compare.png)
+
+**Configuration Comparison** - Performance comparison across different model configs:
+![Config Comparison Example](assets/llama70_config_compare.png)
+
+Each plot displays:
+- **X-axis**: Latency metrics (E2E, ITL, TTFT, or Interactivity)
+- **Y-axis**: Token throughput per GPU
+- **Series**: TP sizes (for TP comparison) or configurations (for config comparison)
+- **Points**: Individual concurrency levels
+- **Legend**: Model configs and image tags
+
+This provides clear insights into how different TP sizes and configurations affect throughput/latency tradeoffs.
+
+### Example Results Table
+
+The benchmark generates `logs/test_results.tsv` with summary status for each test configuration:
+
+| Timestamp | Model | Image Tag | Model Config | TP Size | Test Plan | Sub Task | Result |
+|-----------|-------|-----------|--------------|---------|-----------|----------|--------|
+| 2026-01-05T02:23:12 | amd/Llama-3.1-70B-Instruct-FP8-KV | rocm7.0.0_vllm_0.11.2_20251210 | configs/models/llama-vllm.yaml | 1 | sample | - | success |
+| 2026-01-05T02:23:12 | amd/Llama-3.1-70B-Instruct-FP8-KV | rocm7.0.0_vllm_0.11.2_20251210 | configs/models/llama-vllm.yaml | 2 | sample | - | success |
+| 2026-01-05T02:23:12 | amd/Llama-3.1-70B-Instruct-FP8-KV | rocm7.0.0_vllm_0.11.2_20251210 | configs/models/llama-vllm.yaml | 4 | sample | - | success |
+| 2026-01-05T02:23:12 | amd/Llama-3.1-70B-Instruct-FP8-KV | rocm7.0.0_vllm_0.11.2_20251210 | configs/models/llama-vllm.yaml | 8 | sample | - | success |
+| 2026-01-05T00:30:43 | amd/Llama-3.1-70B-Instruct-FP8-KV | rocm7.2_preview_ubuntu_22.04_vllm_0.10.1_instinct_20251120 | configs/models/llama-vllm-silo.yaml | 1 | sample | - | success |
+| 2026-01-05T00:30:43 | amd/Llama-3.1-70B-Instruct-FP8-KV | rocm7.2_preview_ubuntu_22.04_vllm_0.10.1_instinct_20251120 | configs/models/llama-vllm-silo.yaml | 2 | sample | - | success |
+
+Status values:
+- **success**: Test completed with valid results data (CSV file contains metrics)
+- **failure**: Test encountered errors or missing results data
+- **incomplete**: Test partially completed but missing some data
+- **not_tested**: Test was not executed
+
 ## Documentation
 
 - Plotter usage and GUI: [docs/README_PLOTTER.md](docs/README_PLOTTER.md)
+- Reporter usage: [docs/README_REPORTER.md](docs/README_REPORTER.md)
+- Markdown report generator: [docs/README_MARKDOWN_REPORT.md](docs/README_MARKDOWN_REPORT.md)
 # TODO
 1. Having test inferenceMax options:
     - https://github.com/InferenceMAX/InferenceMAX/blob/main/benchmarks/70b_fp4_mi355x_docker.sh
