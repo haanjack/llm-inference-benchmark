@@ -91,6 +91,15 @@ def prettify_script(input_path: Path, output_path: Path = None):
     port = port_match.group(1) if port_match else None
     tp_size = tp_size_match.group(1) if tp_size_match else None
 
+    # Simplify container name to just model-name-tpN format
+    if container_name and model_name and tp_size:
+        # Extract just the model name part (last component)
+        model_short_name = model_name.split('/')[-1]
+        simplified_container_name = f"{model_short_name}-tp{tp_size}"
+        # Replace all occurrences of the old container name with the new simplified one
+        content = content.replace(container_name, simplified_container_name)
+        container_name = simplified_container_name
+
     # Extract loop values to convert into variables
     loop_values = {}
     loop_patterns = {
@@ -175,6 +184,17 @@ def prettify_script(input_path: Path, output_path: Path = None):
             r'-v\s+\$HOME/[^\s:]+:\$MODEL_PATH(\s)',
             r'-v $MODEL_DIR/$MODEL_NAME:$MODEL_DIR/$MODEL_NAME\1',
             content
+        )
+
+    # Update CONTAINER_NAME variable in header to simplified format
+    if container_name and model_name and tp_size:
+        model_short_name = model_name.split('/')[-1]
+        simplified_container_name = f"{model_short_name}-tp{tp_size}"
+        content = re.sub(
+            r'^CONTAINER_NAME="[^"]+"\n',
+            f'CONTAINER_NAME="{simplified_container_name}"\n',
+            content,
+            flags=re.MULTILINE
         )
 
     if port:
