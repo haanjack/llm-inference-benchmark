@@ -59,11 +59,13 @@ class MarkdownReportGenerator:
         self.logs_dir = Path(logs_dir)
         self.reports_dir = Path(reports_dir)
         self.plots_dir = self.reports_dir / "plots"
+        self.data_dir = self.reports_dir / "data"
         self.throughput = throughput
         self.latencies = [l.strip() for l in latencies.split(',')]
 
         # Ensure directories exist
         self.plots_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self.data_loader = BenchmarkDataLoader(str(logs_dir))
         self.plotter = BenchmarkPlotter()
@@ -296,6 +298,136 @@ class MarkdownReportGenerator:
                 plots[(tag, config, request_rate, isl, osl)] = None
 
         return plots
+
+    def _resolve_log_csv_path(self, log_path_value: str) -> Optional[Path]:
+        """Resolve a CSV path from test_results 'log_path' entry.
+
+        Supports absolute paths, project-relative paths (e.g., 'logs/...'), and
+        paths relative to self.logs_dir.
+
+        Args:
+            log_path_value: The raw 'log_path' string from test_results.tsv
+
+        Returns:
+            Resolved Path object if the file exists, otherwise None.
+        """
+        if not log_path_value or str(log_path_value).strip() == "":
+            return None
+
+        candidate = Path(str(log_path_value).strip())
+        # 1) Exact path as-is
+        if candidate.exists():
+            return candidate
+
+        # 2) If starts with 'logs/', treat as relative to project root
+        try:
+            if str(candidate).startswith('logs/'):
+                candidate2 = self.logs_dir / candidate.relative_to('logs')
+                if candidate2.exists():
+                    return candidate2
+        except Exception:
+            pass
+
+        # 3) Treat as relative to logs_dir
+        candidate3 = self.logs_dir / candidate
+        if candidate3.exists():
+            return candidate3
+
+        return None
+
+    def _parse_server_client_from_filename(self, csv_name: str) -> Tuple[str, str]:
+        """Parse server and client identifiers from a CSV filename.
+
+        Expected patterns include:
+        - results_<server>_<client>.csv
+        - total_results_<server>_<client>.csv
+
+        Args:
+            csv_name: Filename (not path), e.g., 'total_results_vllm_vllm.csv'
+
+        Returns:
+            (server, client) tuple. If parsing fails, returns ('unknown', 'unknown').
+        """
+        name_wo_ext = csv_name
+        if name_wo_ext.endswith('.csv'):
+            name_wo_ext = name_wo_ext[:-4]
+
+        parts = name_wo_ext.split('_')
+        try:
+            # Prefer identifying the index of 'results'
+            idx = parts.index('results')
+            server = parts[idx + 1] if len(parts) > idx + 1 else 'unknown'
+            client = parts[idx + 2] if len(parts) > idx + 2 else 'unknown'
+            return server, client
+        except ValueError:
+            # If 'results' not found, try 'total' then 'results'
+            try:
+                idx = parts.index('total')
+                # expect the next token to be 'results'
+                if len(parts) > idx + 1 and parts[idx + 1] == 'results':
+                    server = parts[idx + 2] if len(parts) > idx + 2 else 'unknown'
+                    client = parts[idx + 3] if len(parts) > idx + 3 else 'unknown'
+                    return server, client
+            except ValueError:
+                pass
+
+        return 'unknown', 'unknown'
+
+    def copy_raw_csvs(self, test_results: pd.DataFrame) -> int:
+        """Copy raw CSV files referenced by test_results into reports/data.
+
+        The destination filename format is:
+            {sanitized_model}_{image_tag}_{server}_{client}.csv
+
+        Args:
+            test_results: DataFrame produced by update_test_results()
+
+        Returns:
+            Number of CSV files copied.
+        """
+        if test_results is None or test_results.empty:
+            return 0
+
+        copied = 0
+        seen_sources: Set[Path] = set()
+
+        # Only consider rows that have a log_path
+        if 'log_path' not in test_results.columns:
+            logger.warning("No 'log_path' column in test_results; skipping raw CSV copy.")
+            return 0
+
+        # Iterate unique combinations by log_path to avoid duplicate copies
+        # But keep model and image_tag from the first occurrence
+        rows = test_results.dropna(subset=['log_path'])
+
+        for _, row in rows.iterrows():
+            raw_path = str(row['log_path'])
+            src = self._resolve_log_csv_path(raw_path)
+            if src is None or not src.exists() or src in seen_sources:
+                continue
+
+            seen_sources.add(src)
+
+            model = row.get('model', 'unknown')
+            image_tag = row.get('image_tag', 'unknown')
+            server, client = self._parse_server_client_from_filename(src.name)
+
+            dest_name = f"{self.sanitize_model_name(str(model))}_{str(image_tag)}_{server}_{client}.csv"
+            dest_path = self.data_dir / dest_name
+
+            try:
+                shutil.copy(src, dest_path)
+                logger.info(f"✓ Copied raw CSV -> {dest_path}")
+                copied += 1
+            except Exception as e:
+                logger.error(f"Failed to copy CSV {src} -> {dest_path}: {e}")
+
+        if copied == 0:
+            logger.info("No raw CSV files were copied (none found or paths missing).")
+        else:
+            logger.info(f"Copied {copied} raw CSV file(s) to {self.data_dir}")
+
+        return copied
 
     def generate_config_comparison_plots(self, model: str) -> Dict[Tuple, Optional[Path]]:
         """Generate config comparison plots for a model.
@@ -598,9 +730,14 @@ class MarkdownReportGenerator:
         logger.info("Generating index report...")
         self.generate_index_report(test_results, model_reports)
 
+        # Step 6: Copy raw CSVs into reports/data
+        logger.info("Copying raw CSV files into reports/data...")
+        self.copy_raw_csvs(test_results)
+
         logger.info("="*70)
         logger.info(f"✓ Successfully generated reports for {len(models)} models")
         logger.info(f"  Output directory: {self.reports_dir}")
+        logger.info(f"  Raw CSV data directory: {self.data_dir}")
         logger.info("="*70)
 
         return len(models)
