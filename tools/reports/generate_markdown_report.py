@@ -577,7 +577,7 @@ class MarkdownReportGenerator:
                             continue
 
                         details = config_details[config_path]
-                        config_name = config_path.replace('configs/models/', '')
+                        config_name = Path(config_path).stem
 
                         # Format each section
                         envs_str = self.format_config_value(details.get('envs', {}))
