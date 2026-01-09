@@ -172,6 +172,10 @@ class VLLMServer(BenchmarkBase):
         )
         logger.info("compilation_config: %s", dict_config_str)
 
+        if self._is_dry_run:
+            logger.info("Dry run - skipping container startup")
+            return
+
         logger.info("Started to initialize vllm server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         logger.info("Environment variables:")

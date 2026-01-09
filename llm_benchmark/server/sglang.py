@@ -124,6 +124,10 @@ class SGLangServer(BenchmarkBase):
         cmd = self.get_server_run_cmd()
         logger.info("SGLang server command: %s", " ".join(cmd))
 
+        if self._is_dry_run:
+            logger.info("Dry run - skipping container startup")
+            return
+
         logger.info("Started to initialize sglang server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         logger.info("Environment variables:")

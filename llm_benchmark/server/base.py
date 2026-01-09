@@ -73,16 +73,18 @@ class BenchmarkBase:
 
         # GPU architecture
         self._arch = None
-        subprocess_run = subprocess.run(["amd-smi", "static", "-g", "0", "--json"], capture_output=True, text=True)
-        if subprocess_run.returncode == 0:
-            try:
-                gpu_info = yaml.safe_load(subprocess_run.stdout)
-                self._arch = gpu_info['gpu_data'][0]['vbios']['name'].split(' ')[-1].lower()
-                logger.info("Detected GPU architecture: %s", self._arch.upper())
-            except Exception as e:
-                logger.warning("Failed to parse GPU architecture: %s", e)
-        else:
-            logger.warning("amd-smi command failed, cannot detect GPU architecture.")
+        # Only check amd-smi if actually running (not in dry-run or when using remote endpoint)
+        if not dry_run and endpoint is None:
+            subprocess_run = subprocess.run(["amd-smi", "static", "-g", "0", "--json"], capture_output=True, text=True)
+            if subprocess_run.returncode == 0:
+                try:
+                    gpu_info = yaml.safe_load(subprocess_run.stdout)
+                    self._arch = gpu_info['gpu_data'][0]['vbios']['name'].split(' ')[-1].lower()
+                    logger.info("Detected GPU architecture: %s", self._arch.upper())
+                except Exception as e:
+                    logger.warning("Failed to parse GPU architecture: %s", e)
+            else:
+                logger.warning("amd-smi command failed, cannot detect GPU architecture.")
 
         # Initialize container runtime
         if endpoint is None:
