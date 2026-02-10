@@ -54,20 +54,33 @@ class SGLangServer(BenchmarkBase):
                 "-v",
                 f"{self._host_cache_dir}:/root/.cache",
                 image_val,
-                "python",
-                "-m",
-                "sglang.launch_server",
-                "--model-path",
-                model_path_val,
-                "--host",
-                "0.0.0.0",
-                "--port",
-                port_val,
-                "--tensor-parallel-size",
-                tp_size_val,
             ]
         )
-        cmd.extend(self._build_sglang_args())
+
+        # Build sglang launch command
+        sglang_cmd = [
+            "python",
+            "-m",
+            "sglang.launch_server",
+            "--model-path",
+            model_path_val,
+            "--host",
+            "0.0.0.0",
+            "--port",
+            port_val,
+            "--tensor-parallel-size",
+            tp_size_val,
+        ]
+        sglang_cmd.extend(self._build_sglang_args())
+
+        # Build startup command: install pip packages first, then start sglang
+        pip_cmd = self._get_pip_install_cmd_prefix()
+        if pip_cmd:
+            shell_cmd = f"{pip_cmd} && {' '.join(sglang_cmd)}"
+            cmd.extend(["/bin/bash", "-c", shell_cmd])
+        else:
+            cmd.extend(sglang_cmd)
+
         return cmd
 
     def get_server_run_cmd_direct(self) -> List[str]:
@@ -122,10 +135,6 @@ class SGLangServer(BenchmarkBase):
         """Start SGLang server container"""
         self.cleanup_container()
 
-        # Update pip packages if configured
-        if not self._is_dry_run:
-            self._update_pip_packages_in_container()
-
         cmd = self.get_server_run_cmd()
         logger.info("SGLang server command: %s", " ".join(cmd))
 
@@ -147,7 +156,8 @@ class SGLangServer(BenchmarkBase):
 
     def _start_server_direct(self):
         # Update pip packages if configured
-        self._update_pip_packages_direct()
+        if self._pip_packages and not self._is_dry_run:
+            self._update_pip_packages_direct()
 
         cmd = self.get_server_run_cmd_direct()
         if self._is_dry_run:

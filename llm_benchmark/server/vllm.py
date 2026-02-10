@@ -95,6 +95,10 @@ class VLLMServer(BenchmarkBase):
             "-v", f"{self._compile_cache_dir}:/root/.cache/compile_config",
             "-v", f"{self._aiter_cache_dir}:/root/.aiter",
             image_val,
+        ])
+
+        # Build vllm serve command with arguments
+        vllm_args = [
             "vllm", "serve",
             model_path_val,
             "--host", "0.0.0.0",
@@ -102,10 +106,19 @@ class VLLMServer(BenchmarkBase):
             "--trust-remote-code",
             "--tensor-parallel-size", tp_size_val,
             "--port", port_val,
-        ])
+        ]
         if no_enable_prefix_caching:
-            cmd.append("--no-enable-prefix-caching")
-        cmd.extend(self._build_vllm_args())
+            vllm_args.append("--no-enable-prefix-caching")
+        vllm_args.extend(self._build_vllm_args())
+
+        # Build startup command: install pip packages first, then start vllm
+        pip_cmd = self._get_pip_install_cmd_prefix()
+        if pip_cmd:
+            shell_cmd = f"{pip_cmd} && {' '.join(vllm_args)}"
+            cmd.extend(["/bin/bash", "-c", shell_cmd])
+        else:
+            cmd.extend(vllm_args)
+
         return cmd
 
     def get_server_run_cmd_direct(self, no_enable_prefix_caching: bool) -> List[str]:
@@ -166,10 +179,6 @@ class VLLMServer(BenchmarkBase):
         """Start vLLM server container"""
         self.cleanup_container()
 
-        # Update pip packages if configured
-        if not self._is_dry_run:
-            self._update_pip_packages_in_container()
-
         cmd = self.get_server_run_cmd(no_enable_prefix_caching)
 
         logger.info("vLLM server command: %s", " ".join(cmd))
@@ -196,7 +205,8 @@ class VLLMServer(BenchmarkBase):
 
     def _start_server_direct(self, no_enable_prefix_caching: bool):
         # Update pip packages if configured
-        self._update_pip_packages_direct()
+        if self._pip_packages and not self._is_dry_run:
+            self._update_pip_packages_direct()
 
         cmd = self.get_server_run_cmd_direct(no_enable_prefix_caching)
         if self._is_dry_run:
