@@ -121,8 +121,17 @@ class SGLangServer(BenchmarkBase):
     def _start_server_container(self):
         """Start SGLang server container"""
         self.cleanup_container()
+
+        # Update pip packages if configured
+        if not self._is_dry_run:
+            self._update_pip_packages_in_container()
+
         cmd = self.get_server_run_cmd()
         logger.info("SGLang server command: %s", " ".join(cmd))
+
+        if self._is_dry_run:
+            logger.info("Dry run - Container command would execute")
+            return
 
         logger.info("Started to initialize sglang server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
@@ -137,6 +146,9 @@ class SGLangServer(BenchmarkBase):
             )
 
     def _start_server_direct(self):
+        # Update pip packages if configured
+        self._update_pip_packages_direct()
+
         cmd = self.get_server_run_cmd_direct()
         if self._is_dry_run:
             cmd_str = " ".join(cmd)

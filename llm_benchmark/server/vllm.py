@@ -147,6 +147,7 @@ class VLLMServer(BenchmarkBase):
         return no_enable_prefix_caching
 
     def start(self):
+
         """Start vLLM server."""
         no_enable_prefix_caching = self._load_test_plan()
 
@@ -164,6 +165,11 @@ class VLLMServer(BenchmarkBase):
     def _start_server_container(self, no_enable_prefix_caching: bool):
         """Start vLLM server container"""
         self.cleanup_container()
+
+        # Update pip packages if configured
+        if not self._is_dry_run:
+            self._update_pip_packages_in_container()
+
         cmd = self.get_server_run_cmd(no_enable_prefix_caching)
 
         logger.info("vLLM server command: %s", " ".join(cmd))
@@ -171,6 +177,10 @@ class VLLMServer(BenchmarkBase):
             self._compilation_config, separators=(",", ":")
         )
         logger.info("compilation_config: %s", dict_config_str)
+
+        if self._is_dry_run:
+            logger.info("Dry run - Container command would execute")
+            return
 
         logger.info("Started to initialize vllm server ...")
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
@@ -185,6 +195,9 @@ class VLLMServer(BenchmarkBase):
             )
 
     def _start_server_direct(self, no_enable_prefix_caching: bool):
+        # Update pip packages if configured
+        self._update_pip_packages_direct()
+
         cmd = self.get_server_run_cmd_direct(no_enable_prefix_caching)
         if self._is_dry_run:
             logger.info("Dry run - Direct server command:")
