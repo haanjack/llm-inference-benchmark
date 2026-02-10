@@ -50,6 +50,7 @@ class BenchmarkBase:
         self._env_vars = {}
         self._server_args = {}
         self._compilation_config = {}
+        self._pip_packages = []
         self._model_config = model_config
         self._is_dry_run = dry_run
         self._in_container = in_container
@@ -227,6 +228,126 @@ class BenchmarkBase:
         if server_args:
             self._server_args.update(server_args)
         self._compilation_config = model_config.get('compilation_config', {}) if model_config.get('compilation_config', {}) else {}
+
+        # Load pip packages to update
+        pip_packages = model_config.get('pip_packages', [])
+        if pip_packages:
+            if isinstance(pip_packages, list):
+                self._pip_packages = pip_packages
+            else:
+                logger.warning("pip_packages must be a list in model config")
+
+    def _update_pip_packages_in_container(self) -> None:
+        """Update pip packages inside container before starting server"""
+        if not self._pip_packages:
+            return
+
+        logger.info("Updating pip packages in container: %s", self._pip_packages)
+        for package in self._pip_packages:
+            # Get current version
+            check_cmd = [
+                self._container_runtime,
+                "run",
+                "--rm",
+                self.image,
+                "pip", "show", package.split('>=')[0].split('==')[0].split('<')[0].split('>')[0].strip()
+            ]
+            current_version = "not installed"
+            try:
+                result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if line.startswith('Version:'):
+                            current_version = line.split(':', 1)[1].strip()
+                            break
+            except:
+                pass
+
+            logger.info("Package '%s' current version: %s", package, current_version)
+
+            update_cmd = [
+                self._container_runtime,
+                "run",
+                "--rm",
+                "-v", f"{self._host_cache_dir}:/root/.cache",
+                self.image,
+                "pip", "install", "--upgrade", package
+            ]
+            try:
+                result = subprocess.run(
+                    update_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                    check=True
+                )
+                # Extract version info from pip output
+                new_version = "unknown"
+                for line in result.stdout.split('\n'):
+                    if 'Successfully installed' in line:
+                        logger.info("Package '%s' update result: %s", package, line.strip())
+                        new_version = "updated"
+                        break
+                if new_version == "unknown":
+                    if 'Requirement already satisfied' in result.stdout:
+                        logger.info("Package '%s' already at latest version", package)
+                    else:
+                        logger.info("Package '%s' updated successfully in container", package)
+                        logger.info("Update output: %s", result.stdout.strip())
+            except subprocess.TimeoutExpired:
+                logger.warning("Package '%s' update timed out in container. Proceeding anyway...", package)
+            except subprocess.CalledProcessError as e:
+                logger.warning("Package '%s' update failed in container: %s. Proceeding anyway...", package, e.stderr)
+
+    def _update_pip_packages_direct(self) -> None:
+        """Update pip packages before starting server directly"""
+        if not self._pip_packages:
+            return
+
+        logger.info("Updating pip packages: %s", self._pip_packages)
+        for package in self._pip_packages:
+            # Get current version
+            package_name = package.split('>=')[0].split('==')[0].split('<')[0].split('>')[0].strip()
+            check_cmd = ["pip", "show", package_name]
+            current_version = "not installed"
+            try:
+                result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if line.startswith('Version:'):
+                            current_version = line.split(':', 1)[1].strip()
+                            break
+            except:
+                pass
+
+            logger.info("Package '%s' current version: %s", package, current_version)
+
+            update_cmd = ["pip", "install", "--upgrade", package]
+            try:
+                result = subprocess.run(
+                    update_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                    check=True
+                )
+                # Extract version info from pip output
+                new_version = "unknown"
+                for line in result.stdout.split('\n'):
+                    if 'Successfully installed' in line:
+                        logger.info("Package '%s' update result: %s", package, line.strip())
+                        new_version = "updated"
+                        break
+                if new_version == "unknown":
+                    if 'Requirement already satisfied' in result.stdout:
+                        logger.info("Package '%s' already at latest version", package)
+                    else:
+                        logger.info("Package '%s' updated successfully", package)
+                        logger.info("Update output: %s", result.stdout.strip())
+            except subprocess.TimeoutExpired:
+                logger.warning("Package '%s' update timed out. Proceeding anyway...", package)
+            except subprocess.CalledProcessError as e:
+                logger.warning("Package '%s' update failed: %s. Proceeding anyway...", package, e.stderr)
 
     def _load_model_from_path_or_hub(self, model_path_or_id: str,
                                      model_root_dir: Optional[Union[str, Path]] = None) -> Path:
